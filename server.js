@@ -10,10 +10,13 @@ import { loadConfig } from './lib/config.js';
 import { fetchSchedule } from './lib/sportsconnect.js';
 import { getJson, discoverPortal } from './lib/node-http.js';
 import { scheduleJson, calendarIcs } from './lib/handlers.js';
+import { trackChanges } from './lib/changes.js';
+import { FileChangeStore } from './lib/change-store-file.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
 const CACHE_FILE = path.join(ROOT, 'data', 'cache.json');
+const changeStore = new FileChangeStore(path.join(ROOT, 'data', 'changes.json'));
 const cfg = loadConfig(process.env);
 
 const MIME = {
@@ -47,6 +50,13 @@ async function refresh() {
       const t0 = Date.now();
       const data = await fetchSchedule(cfg, { getJson });
       data.leagueName = cfg.leagueName;
+      try {
+        const r = await trackChanges(changeStore, data);
+        if (r.changes.length || r.seeding) console.log(`Recorded ${r.changes.length} changes${r.seeding ? ' (seeded baseline)' : ''}`);
+        if (r.skippedRemovals) console.warn(`Ignored ${r.skippedRemovals} missing games (looks like a partial fetch)`);
+      } catch (err) {
+        console.error('Change tracking failed:', err.message);
+      }
       cache = { data, fetchedAtMs: Date.now() };
       lastError = null;
       console.log(`Fetched ${data.events.length} events in ${Date.now() - t0} ms`);

@@ -1,10 +1,12 @@
 // Cloudflare Worker entry: the same app as server.js, with the schedule cached
-// in KV and refreshed by a cron trigger. Static files in public/ are served by
-// Workers Static Assets before this code runs.
+// in KV, changes logged to D1, and both refreshed by a cron trigger. Static
+// files in public/ are served by Workers Static Assets before this code runs.
 
 import { loadConfig } from './lib/config.js';
 import { fetchSchedule } from './lib/sportsconnect.js';
 import { scheduleJson, calendarIcs } from './lib/handlers.js';
+import { trackChanges } from './lib/changes.js';
+import { D1ChangeStore } from './lib/change-store-d1.js';
 
 const KV_KEY = 'schedule';
 const MIN_REFRESH_MS = 60_000; // don't let ?refresh hammer the league site
@@ -18,6 +20,14 @@ async function refresh(env, cfg) {
   try {
     const data = await fetchSchedule(cfg);
     data.leagueName = cfg.leagueName;
+    try {
+      const r = await trackChanges(new D1ChangeStore(env.DB), data);
+      if (r.changes.length || r.seeding) console.log(`Recorded ${r.changes.length} changes${r.seeding ? ' (seeded baseline)' : ''}`);
+      if (r.skippedRemovals) console.warn(`Ignored ${r.skippedRemovals} missing games (looks like a partial fetch)`);
+    } catch (err) {
+      // Change tracking is a bonus; never let it take the schedule down.
+      console.error('Change tracking failed:', err.message);
+    }
     await env.CACHE.put(KV_KEY, JSON.stringify(data));
     memo = data;
     lastError = null;

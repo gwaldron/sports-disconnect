@@ -10,6 +10,15 @@
   "kv_namespaces": [
     { "binding": "CACHE", "id": "94eacb8c29a644168c0fee0e14ef2012" }
   ],
+  // Change log: the last-seen version of every match plus a history of changes.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sports-disconnect",
+      "database_id": "2852c3a6-7b55-4845-9c5c-ae05acf3a8ef",
+      "migrations_dir": "migrations"
+    }
+  ],
   // Keep the cached schedule fresh so visitors never wait on the league site.
   "triggers": {
     "crons": ["*/15 * * * *"]

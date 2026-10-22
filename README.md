@@ -22,6 +22,24 @@ Then open http://localhost:3000.
 - **Export:** download an `.ics` file of what's on screen, or subscribe to a live feed for your filters. You can also print a clean list.
 - Works on phones (the filters move into a drawer, and the view tabs sit at the bottom), and supports dark mode.
 
+## Change tracking
+
+SportsConnect doesn't say when a game changes, so the app keeps its own record.
+Every refresh is compared, game by game, with the last version it saw (match IDs
+stay the same when a game is rescheduled):
+
+- **New**, **Updated** and **Removed** badges appear on recently changed games (the default window is 3 days).
+- Updated games show inline before→after values, for example ~~3:30 PM–5:30 PM~~ → **9:00 AM–10:30 AM**.
+- Removed games stay in their old slot, struck through, so they don't just silently disappear.
+- The **Changes** view lists everything that changed, newest first, and respects your current filters. The tab shows a count of changes since your last visit.
+- Each game's detail pop-up has a **History** section.
+- In calendar exports, a game keeps the same ID when it's rescheduled. Subscribed calendars therefore update it in place instead of deleting it and adding a new one.
+
+`lib/changes.js` contains the comparison logic. History begins when tracking starts; the first run only
+records a starting snapshot. If a fetch is missing more than 20% of games, the app treats it as a bad
+response and ignores those removals instead of reporting mass cancellations. The history is stored in D1
+on Cloudflare (`migrations/`) and in `data/changes.json` locally.
+
 ## How it works
 
 The SportsConnect calendar page is a Kendo UI app backed by public JSON endpoints under
@@ -57,7 +75,7 @@ Set these as environment variables:
 
 Live at **https://sports-disconnect.gwaldron.workers.dev**. It runs as a Worker (`worker.js`):
 - `public/` is served as static assets.
-- The schedule is cached in a KV namespace (`CACHE`).
+- The schedule is cached in a KV namespace (`CACHE`), and the change history lives in a D1 database (`DB`).
 - A cron trigger refreshes the cache every 15 minutes, so visitors never wait on the league site.
 
 The settings live in [`wrangler.jsonc`](wrangler.jsonc). To ship changes:

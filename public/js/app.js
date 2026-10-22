@@ -1,13 +1,19 @@
 import * as F from './filter.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
-const LS = { starred: 'sd.starred', lastHash: 'sd.lastHash', showPast: 'sd.showPast' };
+const LS = {
+  starred: 'sd.starred', lastHash: 'sd.lastHash', showPast: 'sd.showPast',
+  changesSeen: 'sd.changesSeen', highlightDays: 'sd.highlightDays',
+};
 const RANGE_LABELS = {
   upcoming: 'Upcoming', today: 'Today', next7: 'Next 7 days', week: 'This week',
   month: 'This month', past: 'Past', all: 'All dates', custom: 'Custom…',
 };
 const TYPE_LABELS = { game: 'Games', practice: 'Practices', other: 'Other' };
 const TYPE_BADGE = { game: 'Game', practice: 'Practice', other: 'Event' };
+const CHANGE_BADGE = { new: 'New', updated: 'Updated', removed: 'Removed' };
+const FIELD_LABELS = { when: 'Time', where: 'Field', home: 'Home', away: 'Away', type: 'Type', status: 'Status', notes: 'Notes' };
+const VIEWS = ['list', 'week', 'month', 'changes'];
 
 const state = {
   data: null,
@@ -22,6 +28,13 @@ const state = {
   showPast: load(LS.showPast, false),
   teamQ: '',
   locQ: '',
+  changes: [], // recent change log, newest first
+  changesByMatch: new Map(), // matchId -> changes, oldest first
+  eventsByMatch: new Map(),
+  removed: [], // last-known versions of games that dropped off the schedule
+  highlightDays: load(LS.highlightDays, 3),
+  seenMark: '', // changes newer than this were unseen when the Changes view opened
+  inChanges: false,
 };
 
 // ---------- utilities ----------
@@ -76,7 +89,7 @@ function readHash() {
   const raw = location.hash.slice(1) || load(LS.lastHash, '');
   const p = new URLSearchParams(raw);
   state.filters = F.parseFilters(p);
-  state.view = ['list', 'week', 'month'].includes(p.get('view')) ? p.get('view') : 'list';
+  state.view = VIEWS.includes(p.get('view')) ? p.get('view') : 'list';
   state.anchor = /^\d{4}-\d{2}-\d{2}$/.test(p.get('d') || '') ? p.get('d') : today();
 }
 
@@ -98,6 +111,20 @@ async function loadData(refresh = false) {
   state.data = data;
   state.events = data.events;
   for (const ev of state.events) ev._hay = F.haystack(ev);
+  state.eventsByMatch = new Map(state.events.map((ev) => [ev.matchId, ev]));
+
+  state.changes = data.changes || [];
+  state.changesByMatch = new Map();
+  const gone = new Map();
+  for (const c of [...state.changes].reverse()) {
+    if (!state.changesByMatch.has(c.matchId)) state.changesByMatch.set(c.matchId, []);
+    state.changesByMatch.get(c.matchId).push(c);
+    if (c.event?.id) {
+      c.event._hay = F.haystack(c.event);
+      gone.set(c.matchId, c.event);
+    }
+  }
+  state.removed = [...gone.values()];
 
   state.divisions = new Map();
   state.teams = new Map();
@@ -117,15 +144,101 @@ function viewWindow() {
     const [first, last] = F.monthBounds(state.anchor);
     return [F.weekStart(first), F.addDays(F.weekStart(last), 6)];
   }
+  if (state.view === 'changes') return [today(), ''];
   return F.rangeBounds(state.filters, today());
 }
 
 function visibleEvents() {
   const [from, to] = viewWindow();
-  const out = state.events.filter((ev) =>
-    (!from || ev.date >= from) && (!to || ev.date <= to) && F.matchesNonDate(ev, state.filters));
-  if (state.view === 'list' && state.filters.range === 'past') out.reverse();
+  const inView = (ev) => (!from || ev.date >= from) && (!to || ev.date <= to) && F.matchesNonDate(ev, state.filters);
+  let out = state.events.filter(inView);
+  if (state.view === 'list') {
+    // Recently removed games stay in their old slot, struck through, so you notice.
+    const gone = state.removed.filter((ev) => inView(ev) && recentChange(ev)?.kind === 'removed');
+    if (gone.length) out = out.concat(gone).sort((a, b) => a.start.localeCompare(b.start));
+    if (state.filters.range === 'past') out.reverse();
+  }
   return out;
+}
+
+function findEvent(id) {
+  return state.events.find((x) => x.id === id) || state.changes.find((c) => c.event?.id === id)?.event;
+}
+
+// ---------- change tracking ----------
+
+function highlightCutoff() {
+  return new Date(Date.now() - state.highlightDays * 86400_000).toISOString();
+}
+
+/** What happened to a game within the highlight window: { kind, diffs, at } or null. */
+function recentChange(ev) {
+  const since = highlightCutoff();
+  const list = (state.changesByMatch.get(ev.matchId) || []).filter((c) => c.at >= since);
+  return list.length ? { kind: changeKind(list), diffs: collapseDiffs(list), at: list.at(-1).at } : null;
+}
+
+function changeKind(list) {
+  if (list.at(-1).kind === 'removed') return 'removed';
+  return list.some((c) => c.kind === 'added') ? 'new' : 'updated';
+}
+
+/** Several changes to one field collapse into a single first-before → latest-after. */
+function collapseDiffs(list) {
+  const byField = new Map();
+  for (const c of list) {
+    if (c.kind !== 'changed') continue;
+    if (byField.has(c.field)) byField.get(c.field).to = c.to;
+    else byField.set(c.field, { field: c.field, from: c.from, to: c.to });
+  }
+  return [...byField.values()].filter((d) => d.from !== d.to);
+}
+
+function whenParts(v) {
+  const [s, e] = v.split('/');
+  return {
+    date: fmtDayShort.format(parseDate(s.slice(0, 10))),
+    time: e ? `${fmtTime(s.slice(11, 16))}–${fmtTime(e.slice(11, 16))}` : 'All day',
+  };
+}
+
+function diffValues(d) {
+  if (d.field === 'when' && d.from && d.to) {
+    const a = whenParts(d.from);
+    const b = whenParts(d.to);
+    return a.date === b.date ? [a.time, b.time] : [`${a.date} · ${a.time}`, `${b.date} · ${b.time}`];
+  }
+  const show = (v) => (d.field === 'type' ? TYPE_BADGE[v] || v : v) || '(none)';
+  return [show(d.from), show(d.to)];
+}
+
+function diffHtml(d) {
+  const [from, to] = diffValues(d);
+  return `<div class="chg"><span class="lbl">${FIELD_LABELS[d.field] || esc(d.field)}</span>
+    <s>${esc(from)}</s><span class="arrow" aria-label="changed to">→</span><b>${esc(to)}</b></div>`;
+}
+
+const fmtClock = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+/** Recent changes as one item per game per refresh, scoped to the current filters. */
+function changeItems() {
+  const since = highlightCutoff();
+  const t = today();
+  const items = new Map();
+  for (const c of state.changes) {
+    if (c.at < since) break; // newest first
+    const ev = state.eventsByMatch.get(c.matchId) || c.event;
+    if (!ev?.id) continue;
+    const key = `${c.matchId}|${c.at}`;
+    if (!items.has(key)) items.set(key, { at: c.at, ev, list: [] });
+    items.get(key).list.push(c);
+  }
+  return [...items.values()].filter(({ ev, list }) => {
+    if (!F.matchesNonDate(ev, state.filters)) return false;
+    // Changes to games already played are noise, unless the game was moved.
+    const movedFrom = list.find((c) => c.field === 'when')?.from?.slice(0, 10);
+    return ev.date >= t || (movedFrom && movedFrom >= t);
+  });
 }
 
 /** Facet counts: how many events each option would show, given the other filters. */
@@ -288,7 +401,7 @@ function renderChips() {
 
 function renderMain() {
   const events = visibleEvents();
-  const isCal = state.view !== 'list';
+  const isCal = state.view === 'week' || state.view === 'month';
   $('#cal-nav').hidden = !isCal;
   if (state.view === 'week') {
     const s = F.weekStart(state.anchor);
@@ -298,12 +411,20 @@ function renderMain() {
     $('#cal-title').textContent = fmtMonth.format(parseDate(state.anchor));
   }
 
-  const games = events.filter((e) => e.type === 'game').length;
-  $('#result-count').textContent = `${events.length} event${events.length === 1 ? '' : 's'}`
-    + (events.length ? ` · ${games} game${games === 1 ? '' : 's'}` : '');
-
   const content = $('#content');
   content.className = `content view-${state.view}`;
+  if (state.view === 'changes') {
+    const items = changeItems();
+    $('#result-count').textContent = `${items.length} change${items.length === 1 ? '' : 's'}`;
+    content.innerHTML = renderChanges(items);
+    return;
+  }
+
+  const live = events.filter((e) => !e.removed);
+  const games = live.filter((e) => e.type === 'game').length;
+  $('#result-count').textContent = `${live.length} event${live.length === 1 ? '' : 's'}`
+    + (live.length ? ` · ${games} game${games === 1 ? '' : 's'}` : '');
+
   if (state.view === 'list') content.innerHTML = events.length ? renderAgenda(events) : emptyState();
   else if (state.view === 'week') content.innerHTML = renderWeek(events);
   else content.innerHTML = renderMonth(events);
@@ -337,7 +458,7 @@ function renderAgenda(events) {
     const rel = relativeDay(date);
     return `<section class="day ${date === t ? 'is-today' : ''} ${date < t ? 'is-past' : ''}" data-date="${date}">
       <h3 class="day-head"><span>${fmtDayLong.format(parseDate(date))}</span>
-        ${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${evs.length}</span></h3>
+        ${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${evs.filter((e) => !e.removed).length}</span></h3>
       <div class="day-events">${evs.map(renderRow).join('')}</div>
     </section>`;
   }).join('');
@@ -366,12 +487,14 @@ function isNow(ev) {
 
 function renderRow(ev) {
   const d = state.divisions.get(ev.divisionId);
+  const rc = recentChange(ev);
   const time = ev.allDay ? '<b>All day</b>' : `<b>${fmtTime(startTime(ev))}</b><span>${fmtTime(endTime(ev))}</span>`;
-  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
+  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''} ${rc ? `chg-${rc.kind}` : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
     <div class="ev-time">${time}</div>
     <div class="ev-body">
       <div class="ev-title">
         <span class="badge">${ev.postseason ? 'Playoff' : TYPE_BADGE[ev.type]}</span>
+        ${rc ? changeBadge(rc.kind, rc.at) : ''}
         ${ev.status ? `<span class="badge warn">${esc(ev.status)}</span>` : ''}
         ${isNow(ev) ? '<span class="badge live">Now</span>' : ''}
         <span class="matchup">${rowTitle(ev)}</span>
@@ -382,9 +505,71 @@ function renderRow(ev) {
         <span class="where">${esc(ev.location)}${ev.field ? ` <span class="field">· ${esc(ev.field)}</span>` : ''}</span>
       </div>
       ${ev.notes ? `<div class="ev-notes">${esc(ev.notes)}</div>` : ''}
+      ${rc?.diffs.length ? `<div class="ev-changes">${rc.diffs.map(diffHtml).join('')}</div>` : ''}
     </div>
     ${ev.mapUrl ? `<a class="map" href="${esc(ev.mapUrl)}" target="_blank" rel="noopener" title="Map: ${esc(ev.location)}" aria-label="Map">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a5.5 5.5 0 0 0-5.5 5.5c0 4.1 5.5 10.5 5.5 10.5s5.5-6.4 5.5-10.5A5.5 5.5 0 0 0 10 2Zm0 7.75a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Z"/></svg></a>` : ''}
+  </article>`;
+}
+
+function changeBadge(kind, at) {
+  return `<span class="badge chg ${kind}" title="${CHANGE_BADGE[kind]} ${timeAgo(at)}">${CHANGE_BADGE[kind]}</span>`;
+}
+
+function renderChanges(items) {
+  const days = state.highlightDays;
+  const windowLabel = days === 1 ? '24 hours' : `${days} days`;
+  const since = state.data.trackingSince;
+  const f = state.filters;
+  const scoped = f.q || f.types.length || f.divs.length || f.teams.length || f.locs.length;
+  const head = `<div class="changes-head">
+      <div><h2>What's changed</h2>
+        <p class="muted">New, moved and removed games${scoped ? ' matching your filters' : ''}, newest first.</p></div>
+      <label class="window">Last
+        <select id="highlight-days">${[1, 3, 7, 14, 30].map((d) =>
+          `<option value="${d}" ${d === days ? 'selected' : ''}>${d === 1 ? '24 hours' : `${d} days`}</option>`).join('')}</select>
+      </label>
+    </div>`;
+  const foot = `<p class="hint changes-foot">The league site is checked every 15 minutes.
+    ${since ? `Tracking changes since ${fmtDayShort.format(new Date(since))}.` : ''}</p>`;
+
+  if (!items.length) {
+    const young = since && Date.now() - Date.parse(since) < days * 86400_000;
+    return `${head}<div class="empty-state"><div class="big">✅</div>
+      <p>${young ? `Change tracking started ${timeAgo(since)}. Changes will appear here when the league updates the schedule.`
+        : `No schedule changes in the last ${windowLabel}${scoped ? ' for these filters' : ''}.`}</p></div>${foot}`;
+  }
+
+  const groups = new Map();
+  for (const it of items) {
+    const day = F.isoDate(new Date(it.at));
+    if (!groups.has(day)) groups.set(day, []);
+    groups.get(day).push(it);
+  }
+  return head + [...groups].map(([day, list]) => `<section class="day">
+      <h3 class="day-head"><span>${relativeDay(day) || fmtDayLong.format(parseDate(day))}</span><span class="n">${list.length}</span></h3>
+      <div class="day-events">${list.map(renderChangeItem).join('')}</div>
+    </section>`).join('') + foot;
+}
+
+function renderChangeItem({ ev, list, at }) {
+  const d = state.divisions.get(ev.divisionId);
+  const kind = changeKind(list);
+  const diffs = collapseDiffs(list);
+  const unseen = at > state.seenMark;
+  const when = `${fmtDayShort.format(parseDate(ev.date))}${ev.allDay ? '' : ` · ${fmtTime(startTime(ev))}`}`;
+  return `<article class="ev chg-item chg-${kind} type-${ev.type} ${unseen ? 'unseen' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
+    <div class="ev-time"><b>${fmtClock(at)}</b><span>${unseen ? '<span class="new-dot"></span>new' : ''}</span></div>
+    <div class="ev-body">
+      <div class="ev-title">${changeBadge(kind, at)}<span class="matchup">${rowTitle(ev)}</span></div>
+      <div class="ev-meta">
+        <span class="game-when">${kind === 'removed' ? 'Was ' : ''}${when}</span>
+        ${d ? `<span class="div"><span class="dot"></span>${esc(d.label)}</span>` : ''}
+        <span class="where">${esc(ev.location)}${ev.field ? ` <span class="field">· ${esc(ev.field)}</span>` : ''}</span>
+      </div>
+      ${diffs.length ? `<div class="ev-changes">${diffs.map(diffHtml).join('')}</div>` : ''}
+      ${kind === 'removed' ? '<div class="ev-notes">No longer on the league schedule. It may have been cancelled.</div>' : ''}
+    </div>
   </article>`;
 }
 
@@ -407,7 +592,7 @@ function renderWeek(events) {
         ${evs.length ? `<span class="n">${evs.length}</span>` : ''}</h3>
       <div class="wday-events">${evs.map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<button class="wev type-${ev.type}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
+        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
           <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}</span>
@@ -438,7 +623,7 @@ function renderMonth(events) {
       <div class="mnum"><span>${parseDate(date).getDate()}</span>${evs.length ? `<span class="n" title="${games} games, ${evs.length - games} other">${evs.length}</span>` : ''}</div>
       ${evs.slice(0, MAX).map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<div class="mev type-${ev.type}" style="--h:${d?.hue ?? 0}">
+        return `<div class="mev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}">
           <span class="t">${ev.allDay ? '' : fmtTime(startTime(ev), true)}</span> ${esc(compactTitle(ev))}</div>`;
       }).join('')}
       ${evs.length > MAX ? `<div class="more">+${evs.length - MAX} more</div>` : ''}
@@ -454,11 +639,29 @@ function render() {
     b.setAttribute('aria-selected', b.dataset.view === state.view);
   });
   $('#q').value !== state.filters.q && ($('#q').value = state.filters.q);
+  markChangesSeen();
   renderSidebar(counts);
   renderChips();
   renderMain();
   renderUpdated();
   writeHash();
+}
+
+/**
+ * Opening the Changes view marks everything as seen, but keeps the old mark
+ * for this visit so the items that were new stay highlighted while you read.
+ */
+function markChangesSeen() {
+  if (state.view === 'changes' && !state.inChanges) {
+    state.inChanges = true;
+    state.seenMark = load(LS.changesSeen, '');
+    save(LS.changesSeen, state.changes[0]?.at || new Date().toISOString());
+  } else if (state.view !== 'changes') {
+    state.inChanges = false;
+  }
+  const seen = load(LS.changesSeen, '');
+  const unseen = state.view === 'changes' ? 0 : changeItems().filter((it) => it.at > seen).length;
+  $('#changes-count').textContent = unseen || '';
 }
 
 function renderUpdated() {
@@ -512,6 +715,7 @@ function eventDetail(ev) {
     </div>`;
   };
   const ics = `/calendar.ics?id=${encodeURIComponent(ev.id)}&download=1&name=${encodeURIComponent(ev.title)}`;
+  const rc = recentChange(ev);
   return `<div class="detail" style="--h:${d?.hue ?? 0}">
     <div class="dialog-top">
       <span></span>
@@ -519,6 +723,7 @@ function eventDetail(ev) {
     </div>
     <div class="badges">
       <span class="badge type-${ev.type}">${ev.postseason ? 'Playoff' : TYPE_BADGE[ev.type]}</span>
+      ${rc ? changeBadge(rc.kind, rc.at) : ''}
       ${ev.status ? `<span class="badge warn">${esc(ev.status)}</span>` : ''}
     </div>
     <h2>${esc(ev.title)}</h2>
@@ -533,10 +738,11 @@ function eventDetail(ev) {
       ${ev.score ? `<dt>Score</dt><dd>${ev.score.home} – ${ev.score.away}</dd>` : ''}
     </dl>
     ${ev.type === 'game' ? teamBlock(ev.home, 'Home') + teamBlock(ev.away, 'Away') : ev.teams.map((t) => teamBlock(t, 'Team')).join('')}
-    <div class="row actions">
+    ${historyHtml(ev)}
+    ${ev.removed ? '' : `<div class="row actions">
       <a class="btn" href="${ics}">Add to calendar (.ics)</a>
       <a class="btn" href="${gcalLink(ev)}" target="_blank" rel="noopener">Google Calendar ↗</a>
-    </div>
+    </div>`}
   </div>`;
 }
 
@@ -548,6 +754,31 @@ function goToDay(date) {
   render();
   syncBarHeights(); // the toolbar just changed height; scroll-margin depends on it
   document.querySelector(`.day[data-date="${date}"]`)?.scrollIntoView({ block: 'start' });
+}
+
+function historyHtml(ev) {
+  const byTime = new Map();
+  for (const c of state.changesByMatch.get(ev.matchId) || []) {
+    if (!byTime.has(c.at)) byTime.set(c.at, []);
+    byTime.get(c.at).push(c);
+  }
+  const entries = [...byTime].reverse().map(([at, list]) => {
+    const kind = list.find((c) => c.kind !== 'changed')?.kind;
+    const what = kind === 'added' ? 'Added to the schedule'
+      : kind === 'removed' ? 'Removed from the schedule'
+      : kind === 'restored' ? 'Back on the schedule' : '';
+    return `<li><time>${fmtDayShort.format(new Date(at))}, ${fmtClock(at)}</time>
+      ${what ? `<div>${what}</div>` : ''}${collapseDiffs(list).map(diffHtml).join('')}</li>`;
+  });
+  const since = state.data.trackingSince;
+  const origin = ev.firstSeen
+    ? `First seen ${fmtDayShort.format(new Date(ev.firstSeen))}.`
+    : since ? `On the schedule since before tracking began (${fmtDayShort.format(new Date(since))}).` : '';
+  if (!entries.length && !origin) return '';
+  return `<section class="history"><h3>History</h3>
+    ${ev.removed ? '<p class="notes">No longer on the league schedule. It may have been cancelled.</p>' : ''}
+    ${entries.length ? `<ul>${entries.join('')}</ul>` : '<p class="muted">No changes in the last 30 days.</p>'}
+    <p class="muted small">${origin}</p></section>`;
 }
 
 function exportDialog() {
@@ -646,7 +877,7 @@ document.addEventListener('click', (e) => {
 
   switch (action) {
     case 'open': {
-      const ev = state.events.find((x) => x.id === id);
+      const ev = findEvent(id);
       if (ev) openDialog(eventDetail(ev));
       break;
     }
@@ -672,7 +903,7 @@ document.addEventListener('click', (e) => {
       save(LS.starred, [...state.starred]);
       render();
       if (el.dataset.from && dialog.open) {
-        const ev = state.events.find((x) => x.id === el.dataset.from);
+        const ev = findEvent(el.dataset.from);
         if (ev) openDialog(eventDetail(ev));
       }
       break;
@@ -731,6 +962,11 @@ document.addEventListener('change', (e) => {
   const { kind } = e.target.dataset;
   if (kind) update((f) => toggle(f[{ div: 'divs', team: 'teams', loc: 'locs' }[kind]], e.target.value));
   if (e.target.id === 'from' || e.target.id === 'to') update((f) => { f[e.target.id] = e.target.value; });
+  if (e.target.id === 'highlight-days') {
+    state.highlightDays = Number(e.target.value);
+    save(LS.highlightDays, state.highlightDays);
+    render();
+  }
 });
 
 let qTimer;
