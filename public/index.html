@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sports Disconnect</title>
+  <meta name="description" content="A usable, filterable view of the league calendar.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/favicon.svg" alt="" width="28" height="28">
+      <div>
+        <h1>Sports Disconnect</h1>
+        <p class="league" id="league-name"></p>
+      </div>
+    </div>
+
+    <div class="search">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.5 3a5.5 5.5 0 1 0 3.4 9.8l3.6 3.7 1.1-1.1-3.7-3.6A5.5 5.5 0 0 0 8.5 3Zm0 1.5a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg>
+      <input id="q" type="search" placeholder="Search teams, fields, notes…  ( / )" autocomplete="off" aria-label="Search">
+    </div>
+
+    <nav class="views" role="tablist" aria-label="View">
+      <button role="tab" data-view="list">List</button>
+      <button role="tab" data-view="week">Week</button>
+      <button role="tab" data-view="month">Month</button>
+    </nav>
+
+    <div class="top-actions">
+      <button class="btn ghost filters-toggle" data-action="open-filters">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14v1.5H3zm3 4.25h8v1.5H6zm2.5 4.25h3V15h-3z"/></svg>
+        Filters <span class="pill-count" id="filter-count"></span>
+      </button>
+      <button class="btn ghost" data-action="export">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 6 6.5l1.1 1.1 2.15-2.15V13h1.5V5.45l2.15 2.15L14 6.5l-4-4ZM4 12v4.5h12V12h1.5v6h-15v-6H4Z"/></svg>
+        Export
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar" aria-label="Filters">
+      <div class="sidebar-head">
+        <h2>Filters</h2>
+        <button class="btn primary" data-action="close-filters">Done</button>
+      </div>
+
+      <section class="panel" id="my-teams-panel">
+        <h3>My teams</h3>
+        <div id="my-teams"></div>
+      </section>
+
+      <section class="panel">
+        <h3>Show</h3>
+        <div class="pills" id="type-pills"></div>
+      </section>
+
+      <section class="panel" id="range-panel">
+        <h3>When</h3>
+        <div class="pills wrap" id="range-pills"></div>
+        <div class="custom-range" id="custom-range" hidden>
+          <label>From <input type="date" id="from"></label>
+          <label>To <input type="date" id="to"></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>Divisions &amp; teams</h3>
+        <input class="mini-search" id="team-q" type="search" placeholder="Find a team or division…" autocomplete="off">
+        <div id="div-tree" class="tree"></div>
+      </section>
+
+      <section class="panel">
+        <details id="loc-details">
+          <summary><h3>Locations <span class="muted" id="loc-selected"></span></h3></summary>
+          <input class="mini-search" id="loc-q" type="search" placeholder="Find a location…" autocomplete="off">
+          <div id="loc-list" class="checklist"></div>
+        </details>
+      </section>
+
+      <footer class="sidebar-foot">
+        <span id="updated"></span>
+        <button class="linkish" data-action="refresh">Refresh now</button>
+        <a id="source-link" target="_blank" rel="noopener">Original calendar ↗</a>
+      </footer>
+    </aside>
+    <div class="scrim" data-action="close-filters"></div>
+
+    <main class="main">
+      <div class="toolbar">
+        <div class="cal-nav" id="cal-nav">
+          <button class="btn icon" data-action="prev" aria-label="Previous">‹</button>
+          <button class="btn" data-action="today">Today</button>
+          <button class="btn icon" data-action="next" aria-label="Next">›</button>
+          <h2 id="cal-title"></h2>
+        </div>
+        <div class="chips" id="chips"></div>
+        <div class="result-count" id="result-count"></div>
+      </div>
+      <div id="banner" class="banner" hidden></div>
+      <div id="content" class="content" aria-live="polite">
+        <div class="loading"><div class="spinner"></div>Loading schedule…</div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="dialog" class="dialog">
+    <div id="dialog-body"></div>
+  </dialog>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

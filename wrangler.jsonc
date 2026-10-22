@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sports-disconnect",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "94eacb8c29a644168c0fee0e14ef2012" }
+  ],
+  // Keep the cached schedule fresh so visitors never wait on the league site.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+  // Any SportsConnect site works: add SC_SITE (and SC_MAP_HINT) here. See README.
+  "vars": {
+    "SC_PORTAL_ID": "52092",
+    "SC_LEAGUE_NAME": "Fairfax Little League"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

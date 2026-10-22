@@ -1,0 +1,20 @@
+{
+  "name": "sports-disconnect",
+  "version": "1.0.0",
+  "description": "A usable, filterable view of a SportsConnect league calendar.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "cf:dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.152.0"
+  }
+}
