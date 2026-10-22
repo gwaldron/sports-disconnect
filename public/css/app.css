@@ -21,6 +21,7 @@
   --shadow-lg: 0 12px 40px rgb(16 24 40 / 22%);
   --div-l: 58%;
   --div-c: 0.15;
+  --age-l: 47%; /* division-colored text, dark enough to read */
   --radius: 10px;
   --sidebar-w: 320px;
   --topbar-h: 60px;
@@ -51,6 +52,7 @@
     --shadow-lg: 0 12px 40px rgb(0 0 0 / 60%);
     --div-l: 72%;
     --div-c: 0.13;
+    --age-l: 80%;
     color-scheme: dark;
   }
 }
@@ -361,6 +363,13 @@ details > summary::-webkit-details-marker { display: none; }
 .wev.type-game { background: color-mix(in oklch, oklch(var(--div-l) var(--div-c) var(--h)) 12%, var(--surface)); }
 .wev:hover { border-color: var(--border-strong); }
 .wev .t { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.wev .wtop { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 6px; }
+.wev .wtop .t { white-space: nowrap; }
+.wev .wtop .age { margin-left: auto; }
+.wev .age {
+  flex: none; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
+  color: oklch(var(--age-l) var(--div-c) var(--h));
+}
 .wev .title { font-weight: 600; overflow-wrap: anywhere; }
 .wev .loc { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 .wev .warn { color: var(--warn); }

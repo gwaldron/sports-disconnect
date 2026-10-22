@@ -599,6 +599,13 @@ function renderChangeItem({ ev, list, at }) {
   </article>`;
 }
 
+/** "AA – Minors" -> "AA". Softball shares level names with baseball, so it gets a tag. */
+function ageGroup(d) {
+  if (!d) return '';
+  const short = d.label.split(' – ')[0];
+  return d.sport === 'Softball' ? `${short} SB` : short;
+}
+
 function compactTitle(ev) {
   if (ev.type === 'game' && ev.home && ev.away) return `${ev.home.name} v ${ev.away.name}`;
   if (ev.type === 'practice' && ev.home) return `${ev.home.name} (prac)`;
@@ -619,7 +626,10 @@ function renderWeek(events) {
       <div class="wday-events">${evs.map((ev) => {
         const d = state.divisions.get(ev.divisionId);
         return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
-          <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
+          <span class="wtop">
+            <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
+            ${d ? `<span class="age" title="${esc(d.label)} (${esc(d.sport)})">${esc(ageGroup(d))}</span>` : ''}
+          </span>
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}</span>
         </button>`;
