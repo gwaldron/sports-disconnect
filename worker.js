@@ -1,6 +1,7 @@
 // Cloudflare Worker entry: the same app as server.js, with the schedule cached
-// in KV, changes logged to D1, and both refreshed by a cron trigger. Static
-// files in public/ are served by Workers Static Assets before this code runs.
+// in KV and changes logged to D1. Nothing runs on a timer: the browser asks for
+// a fresh copy when the page loads. Static files in public/ are served by
+// Workers Static Assets before this code runs.
 
 import { loadConfig } from './lib/config.js';
 import { fetchSchedule } from './lib/sportsconnect.js';
@@ -9,7 +10,7 @@ import { trackChanges } from './lib/changes.js';
 import { D1ChangeStore } from './lib/change-store-d1.js';
 
 const KV_KEY = 'schedule';
-const MIN_REFRESH_MS = 60_000; // don't let ?refresh hammer the league site
+const MIN_REFRESH_MS = 60_000; // page loads within a minute of each other share one fetch
 
 let memo = null; // isolate-local copy, to skip KV reads and JSON parsing
 let lastError = null;
@@ -39,42 +40,44 @@ async function refresh(env, cfg) {
   }
 }
 
-async function getSchedule(env, ctx, cfg, { force = false } = {}) {
-  const maxAge = cfg.cacheMinutes * 60_000;
-  if (!memo || ageMs(memo) > maxAge) {
+/** The cached schedule, re-fetched from the league site if older than maxAgeMs. */
+async function getSchedule(env, cfg, { maxAgeMs = Infinity } = {}) {
+  if (!memo || ageMs(memo) > maxAgeMs) {
+    // Another isolate may have refreshed recently.
     const stored = await env.CACHE.get(KV_KEY, { type: 'json' });
     if (stored && (!memo || stored.fetchedAt > memo.fetchedAt)) memo = stored;
   }
-  if (!memo) return refresh(env, cfg);
-  if (force && ageMs(memo) > MIN_REFRESH_MS) {
-    return refresh(env, cfg).catch(() => memo);
+  if (memo && ageMs(memo) <= maxAgeMs) return memo;
+  try {
+    return await refresh(env, cfg);
+  } catch (err) {
+    if (memo) return memo; // league site down: serve what we have, flagged via lastError
+    throw err;
   }
-  // The cron keeps KV fresh; this only kicks in if a run was missed.
-  if (ageMs(memo) > maxAge + 5 * 60_000) ctx.waitUntil(refresh(env, cfg).catch(() => {}));
-  return memo;
 }
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const cfg = loadConfig(env);
     try {
       if (url.pathname === '/api/schedule') {
-        const data = await getSchedule(env, ctx, cfg, { force: url.searchParams.has('refresh') });
+        // ?refresh is sent once per page load; plain requests get the cache.
+        const maxAgeMs = url.searchParams.has('refresh') ? MIN_REFRESH_MS : Infinity;
+        const data = await getSchedule(env, cfg, { maxAgeMs });
         const { body, headers } = scheduleJson(data, { cacheMinutes: cfg.cacheMinutes, error: lastError?.message });
         return new Response(body, { headers });
       }
       if (url.pathname === '/calendar.ics') {
-        const { body, headers } = calendarIcs(await getSchedule(env, ctx, cfg), url.searchParams);
+        // Calendar apps poll this on their own, with nobody opening the page,
+        // so subscribed feeds refresh themselves when the cache is old.
+        const data = await getSchedule(env, cfg, { maxAgeMs: cfg.cacheMinutes * 60_000 });
+        const { body, headers } = calendarIcs(data, url.searchParams);
         return new Response(body, { headers });
       }
     } catch (err) {
       return Response.json({ error: `Couldn't load the schedule: ${err.message}` }, { status: 502 });
     }
     return env.ASSETS.fetch(request);
-  },
-
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(refresh(env, loadConfig(env)));
   },
 };

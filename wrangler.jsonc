@@ -19,9 +19,10 @@
       "migrations_dir": "migrations"
     }
   ],
-  // Keep the cached schedule fresh so visitors never wait on the league site.
+  // No timer: the schedule refreshes when someone loads the page. (An empty
+  // list, rather than no "triggers" key, is what removes a deployed cron.)
   "triggers": {
-    "crons": ["*/15 * * * *"]
+    "crons": []
   },
   // Any SportsConnect site works: add SC_SITE (and SC_MAP_HINT) here. See README.
   "vars": {

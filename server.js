@@ -71,16 +71,15 @@ async function refresh() {
   return inflight;
 }
 
-async function getSchedule({ force = false } = {}) {
-  const fresh = cache && Date.now() - cache.fetchedAtMs < cfg.cacheMinutes * 60_000;
-  if (cache && !force) {
-    if (!fresh) refresh().catch(() => {}); // serve stale now, update in background
-    return cache.data;
-  }
+const MIN_REFRESH_MS = 60_000; // page loads within a minute of each other share one fetch
+
+/** The cached schedule, re-fetched from the league site if older than maxAgeMs. */
+async function getSchedule({ maxAgeMs = Infinity } = {}) {
+  if (cache && Date.now() - cache.fetchedAtMs <= maxAgeMs) return cache.data;
   try {
     await refresh();
   } catch (err) {
-    if (!cache) throw err;
+    if (!cache) throw err; // league site down: serve what we have, flagged via lastError
   }
   return cache.data;
 }
@@ -102,13 +101,16 @@ async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname === '/api/schedule') {
-    const data = await getSchedule({ force: url.searchParams.has('refresh') });
+    // ?refresh is sent once per page load; plain requests get the cache.
+    const data = await getSchedule({ maxAgeMs: url.searchParams.has('refresh') ? MIN_REFRESH_MS : Infinity });
     const { body, headers } = scheduleJson(data, { cacheMinutes: cfg.cacheMinutes, error: lastError?.message });
     return send(req, res, 200, body, headers);
   }
 
   if (url.pathname === '/calendar.ics') {
-    const { body, headers } = calendarIcs(await getSchedule(), url.searchParams);
+    // Calendar apps poll this with nobody opening the page, so refresh if old.
+    const data = await getSchedule({ maxAgeMs: cfg.cacheMinutes * 60_000 });
+    const { body, headers } = calendarIcs(data, url.searchParams);
     return send(req, res, 200, body, headers);
   }
 
@@ -139,5 +141,4 @@ http.createServer((req, res) => {
 }).listen(cfg.port, cfg.host, () => {
   console.log(`Sports Disconnect running at http://${cfg.host === '0.0.0.0' ? 'localhost' : cfg.host}:${cfg.port}`);
   console.log(`Source: ${cfg.site}${cfg.portalId ? ` (portal ${cfg.portalId})` : ''}`);
-  if (!cache) refresh().catch(() => {}); // warm the cache
 });

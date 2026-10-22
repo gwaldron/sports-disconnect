@@ -104,10 +104,36 @@ function writeHash() {
 
 // ---------- data ----------
 
-async function loadData(refresh = false) {
+async function fetchData(refresh = false) {
   const res = await fetch('/api/schedule' + (refresh ? '?refresh=1' : ''));
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+async function loadData(refresh = false) {
+  applyData(await fetchData(refresh));
+}
+
+/**
+ * Once per page load: show the cached copy right away (done by the caller),
+ * then ask the server to re-check the league site and re-render if it changed.
+ */
+async function checkForUpdates() {
+  const before = state.data.fetchedAt;
+  $('#updated').textContent = 'Checking for updates…';
+  try {
+    const data = await fetchData(true);
+    if (data.fetchedAt !== before) {
+      applyData(data);
+      render();
+      return;
+    }
+  } catch { /* keep showing the cached copy */ }
+  renderUpdated();
+}
+
+function applyData(data) {
   state.data = data;
   state.events = data.events;
   for (const ev of state.events) ev._hay = F.haystack(ev);
@@ -530,7 +556,7 @@ function renderChanges(items) {
           `<option value="${d}" ${d === days ? 'selected' : ''}>${d === 1 ? '24 hours' : `${d} days`}</option>`).join('')}</select>
       </label>
     </div>`;
-  const foot = `<p class="hint changes-foot">The league site is checked every 15 minutes.
+  const foot = `<p class="hint changes-foot">The league site is checked each time this page is opened.
     ${since ? `Tracking changes since ${fmtDayShort.format(new Date(since))}.` : ''}</p>`;
 
   if (!items.length) {
@@ -652,11 +678,11 @@ function render() {
  * for this visit so the items that were new stay highlighted while you read.
  */
 function markChangesSeen() {
-  if (state.view === 'changes' && !state.inChanges) {
+  if (state.view === 'changes') {
+    if (!state.inChanges) state.seenMark = load(LS.changesSeen, '');
     state.inChanges = true;
-    state.seenMark = load(LS.changesSeen, '');
     save(LS.changesSeen, state.changes[0]?.at || new Date().toISOString());
-  } else if (state.view !== 'changes') {
+  } else {
     state.inChanges = false;
   }
   const seen = load(LS.changesSeen, '');
@@ -997,13 +1023,6 @@ new ResizeObserver(syncBarHeights).observe(document.body);
 dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); }); // backdrop
 window.addEventListener('hashchange', () => { readHash(); render(); });
 
-// Re-fetch when the tab comes back after a while, so a phone left open stays current.
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.data
-    && Date.now() - Date.parse(state.data.fetchedAt) > 15 * 60_000) {
-    loadData().then(render).catch(() => {});
-  }
-});
 setInterval(() => state.data && renderUpdated(), 60_000);
 
 // ---------- boot ----------
@@ -1018,6 +1037,7 @@ loadData()
     // Drop starred/filtered team ids that no longer exist.
     for (const id of state.starred) if (!state.teams.has(id)) state.starred.delete(id);
     render();
+    checkForUpdates();
   })
   .catch((err) => {
     $('#content').innerHTML = `<div class="empty-state"><div class="big">🌧️</div>

@@ -25,8 +25,8 @@ Then open http://localhost:3000.
 ## Change tracking
 
 SportsConnect doesn't say when a game changes, so the app keeps its own record.
-Every refresh is compared, game by game, with the last version it saw (match IDs
-stay the same when a game is rescheduled):
+Each time it re-checks the league site, it compares the result, game by game, with the
+last version it saw (match IDs stay the same when a game is rescheduled):
 
 - **New**, **Updated** and **Removed** badges appear on recently changed games (the default window is 3 days).
 - Updated games show inline before→after values, for example ~~3:30 PM–5:30 PM~~ → **9:00 AM–10:30 AM**.
@@ -38,7 +38,8 @@ stay the same when a game is rescheduled):
 `lib/changes.js` contains the comparison logic. History begins when tracking starts; the first run only
 records a starting snapshot. If a fetch is missing more than 20% of games, the app treats it as a bad
 response and ignores those removals instead of reporting mass cancellations. The history is stored in D1
-on Cloudflare (`migrations/`) and in `data/changes.json` locally.
+on Cloudflare (`migrations/`) and in `data/changes.json` locally. A change's timestamp is when the app
+noticed it, which is the first page load (or calendar-feed poll) after the league made the edit.
 
 ## How it works
 
@@ -46,12 +47,18 @@ The SportsConnect calendar page is a Kendo UI app backed by public JSON endpoint
 `/DesktopModules/sScheduleEventServices/API/`. Calling `Calendar/GetMatches` with
 `isToCheckForDateRange=false` returns every posted event in one request. Those
 endpoints send no CORS headers, so `server.js` proxies them. It normalizes the
-data (`lib/sportsconnect.js`), caches it for 15 minutes in memory and in `data/cache.json`,
-and serves the static UI from `public/`.
+data (`lib/sportsconnect.js`), caches it in memory and in `data/cache.json`, and serves the
+static UI from `public/`.
+
+There's no timer. When the page loads, it shows the cached copy immediately, then asks for
+`/api/schedule?refresh`. The server re-fetches from the league site (at most once a minute, no
+matter how many people load the page) and the page updates if anything changed. Calendar feeds
+(`/calendar.ics`) re-fetch on their own when the cache is more than `CACHE_MINUTES` old, because
+calendar apps poll them without anyone opening the page.
 
 | Route | What |
 | --- | --- |
-| `/api/schedule` | Normalized events, divisions, teams and locations (`?refresh` forces a re-fetch) |
+| `/api/schedule` | Normalized events, divisions, teams, locations and recent changes. `?refresh` re-fetches from the league site if the cache is over a minute old. |
 | `/calendar.ics` | iCalendar feed. It takes the same query params as the UI (`team`, `div`, `type`, `loc`, `q`). Add `range`/`from`/`to` to limit dates, `download` for a file, or `name` to title it. |
 
 The browser and the `.ics` export both use the same filter code (`public/js/filter.js`),
@@ -69,14 +76,13 @@ Set these as environment variables:
 | `SC_API_TIMEZONE` | `Eastern Standard Time` | Windows zone name the API expects |
 | `SC_MAP_HINT` | `Fairfax, VA` | Added to map searches, because the site has no field addresses |
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Use `HOST=0.0.0.0` to reach it from your phone on the same Wi-Fi |
-| `CACHE_MINUTES` | `15` | |
+| `CACHE_MINUTES` | `15` | How stale the cache can get before a calendar-feed request triggers a re-fetch |
 
 ## Cloudflare deployment
 
 Live at **https://sports-disconnect.gwaldron.workers.dev**. It runs as a Worker (`worker.js`):
 - `public/` is served as static assets.
 - The schedule is cached in a KV namespace (`CACHE`), and the change history lives in a D1 database (`DB`).
-- A cron trigger refreshes the cache every 15 minutes, so visitors never wait on the league site.
 
 The settings live in [`wrangler.jsonc`](wrangler.jsonc). To ship changes:
 
