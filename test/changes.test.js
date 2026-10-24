@@ -71,13 +71,14 @@ test('change ids are deterministic, so overlapping refreshes dedupe', () => {
 });
 
 test('trackChanges annotates events and attaches snapshots of removed games', async () => {
-  const memory = { rows: new Map(), changes: [], since: null };
+  const memory = { rows: new Map(), changes: [], since: null, checked: null };
   const store = {
-    loadBaseline: async () => ({ rows: new Map(memory.rows), trackingSince: memory.since }),
-    save: async ({ upserts, changes, trackingSince }) => {
+    loadBaseline: async () => ({ rows: new Map(memory.rows), trackingSince: memory.since, lastChecked: memory.checked }),
+    save: async ({ upserts, changes, trackingSince, lastChecked }) => {
       for (const u of upserts) memory.rows.set(u.matchId, u);
       memory.changes.push(...changes);
       memory.since ||= trackingSince;
+      memory.checked = lastChecked;
     },
     recentChanges: async (since) => memory.changes.filter((c) => c.at >= since).reverse(),
   };
@@ -95,4 +96,7 @@ test('trackChanges annotates events and attaches snapshots of removed games', as
   assert.equal(removed.event.removed, true);
   assert.equal(removed.event.location, 'Chilcott Stadium');
   assert.ok(data.changes.some((c) => c.kind === 'added' && c.matchId === 31 && !c.event));
+  // Each change knows the window it happened in: after the previous check.
+  assert.ok(data.changes.every((c) => c.prevChecked === T && c.at === '2026-10-22T15:15:00.000Z'));
+  assert.equal(memory.checked, '2026-10-22T15:15:00.000Z');
 });

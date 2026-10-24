@@ -11,8 +11,8 @@ const RANGE_LABELS = {
 };
 const TYPE_LABELS = { game: 'Games', practice: 'Practices', other: 'Other' };
 const TYPE_BADGE = { game: 'Game', practice: 'Practice', other: 'Event' };
-const CHANGE_BADGE = { new: 'New', updated: 'Updated', removed: 'Removed' };
-const FIELD_LABELS = { when: 'Time', where: 'Field', home: 'Home', away: 'Away', type: 'Type', status: 'Status', notes: 'Notes' };
+const CHANGE_BADGE = { new: 'New', moved: 'Moved', updated: 'Updated', removed: 'Removed' };
+const TYPE_NOUN = { game: 'game', practice: 'practice', other: 'event' };
 const VIEWS = ['list', 'week', 'month', 'changes'];
 
 const state = {
@@ -207,9 +207,11 @@ function recentChange(ev) {
   return list.length ? { kind: changeKind(list), diffs: collapseDiffs(list), at: list.at(-1).at } : null;
 }
 
+/** new | moved (time, date or field) | updated (anything else) | removed */
 function changeKind(list) {
   if (list.at(-1).kind === 'removed') return 'removed';
-  return list.some((c) => c.kind === 'added') ? 'new' : 'updated';
+  if (list.some((c) => c.kind === 'added')) return 'new';
+  return collapseDiffs(list).some((d) => d.field === 'when' || d.field === 'where') ? 'moved' : 'updated';
 }
 
 /** Several changes to one field collapse into a single first-before → latest-after. */
@@ -241,15 +243,65 @@ function diffValues(d) {
   return [show(d.from), show(d.to)];
 }
 
-function diffHtml(d) {
+/** One plain-English line per change, with before → after values. */
+function explainDiff(d) {
   const [from, to] = diffValues(d);
-  return `<div class="chg"><span class="lbl">${FIELD_LABELS[d.field] || esc(d.field)}</span>
-    <s>${esc(from)}</s><span class="arrow" aria-label="changed to">→</span><b>${esc(to)}</b></div>`;
+  const beforeAfter = `<s>${esc(from)}</s> <span class="arrow" aria-label="changed to">→</span> <b>${esc(to)}</b>`;
+  switch (d.field) {
+    case 'when':
+      return `${d.from?.slice(0, 10) === d.to?.slice(0, 10) ? 'Time changed' : 'Rescheduled'}: ${beforeAfter}`;
+    case 'where':
+      return `${d.from.split(' · ')[0] === d.to.split(' · ')[0] ? 'Field changed' : 'Moved to a different location'}: ${beforeAfter}`;
+    case 'home': return `Home team changed: ${beforeAfter}`;
+    case 'away': return `Away team changed: ${beforeAfter}`;
+    case 'type': return `Changed from ${esc(from.toLowerCase())} to ${esc(to.toLowerCase())}.`;
+    case 'status': return d.to ? `Marked “${esc(d.to)}”.` : `No longer marked “${esc(d.from)}”.`;
+    case 'notes':
+      if (!d.from) return `Note added: “${esc(d.to)}”`;
+      if (!d.to) return `Note removed: <s>${esc(d.from)}</s>`;
+      return `Note changed: ${beforeAfter}`;
+    default: return `${esc(d.field)} changed: ${beforeAfter}`;
+  }
+}
+
+/** What happened, in words. `kind` adds a leading sentence for new/removed games. */
+function explainChanges(kind, diffs, ev) {
+  const lines = [];
+  if (kind === 'new') lines.push(`New ${TYPE_NOUN[ev.type]} added to the schedule.`);
+  if (kind === 'removed') lines.push('Removed from the schedule. It may have been cancelled.');
+  lines.push(...diffs.map(explainDiff));
+  return lines.length ? `<div class="ev-changes">${lines.map((l) => `<div class="chg">${l}</div>`).join('')}</div>` : '';
 }
 
 const fmtClock = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fmtMonthDay = fmt({ month: 'short', day: 'numeric' });
 
-/** Recent changes as one item per game per refresh, scoped to the current filters. */
+/** "today 2:15 PM", "yesterday 9:40 AM", "Thu 11:12 AM", "Oct 3, 11:12 AM" */
+function fmtMoment(iso) {
+  const d = new Date(iso);
+  const day = F.isoDate(d);
+  const t = today();
+  if (day === t) return `today ${fmtClock(iso)}`;
+  if (day === F.addDays(t, -1)) return `yesterday ${fmtClock(iso)}`;
+  if (day > F.addDays(t, -7)) return `${fmtWeekday.format(d)} ${fmtClock(iso)}`;
+  return `${fmtMonthDay.format(d)}, ${fmtClock(iso)}`;
+}
+
+/**
+ * Our best estimate of when the league made the edit. SportsConnect publishes
+ * no edit times, so it's the window between the last check that still saw the
+ * old version and the check that noticed the new one.
+ */
+function changedWhen(list) {
+  const last = list.reduce((a, b) => (b.at > a.at ? b : a));
+  if (!last.prevChecked) return `Noticed ${fmtMoment(last.at)}`;
+  const from = Date.parse(last.prevChecked);
+  const to = Date.parse(last.at);
+  if (to - from <= 90 * 60_000) return `Changed around ${fmtMoment(new Date((from + to) / 2).toISOString())}`;
+  return `Changed between ${fmtMoment(last.prevChecked)} and ${fmtMoment(last.at)}`;
+}
+
+/** Recently changed games, one item each (oldest change first), scoped to the current filters. */
 function changeItems() {
   const since = highlightCutoff();
   const t = today();
@@ -258,16 +310,15 @@ function changeItems() {
     if (c.at < since) break; // newest first
     const ev = state.eventsByMatch.get(c.matchId) || c.event;
     if (!ev?.id) continue;
-    const key = `${c.matchId}|${c.at}`;
-    if (!items.has(key)) items.set(key, { at: c.at, ev, list: [] });
-    items.get(key).list.push(c);
+    if (!items.has(c.matchId)) items.set(c.matchId, { at: c.at, ev, list: [] }); // at = latest change
+    items.get(c.matchId).list.unshift(c);
   }
   return [...items.values()].filter(({ ev, list }) => {
     if (!F.matchesNonDate(ev, state.filters)) return false;
     // Changes to games already played are noise, unless the game was moved.
     const movedFrom = list.find((c) => c.field === 'when')?.from?.slice(0, 10);
     return ev.date >= t || (movedFrom && movedFrom >= t);
-  });
+  }).sort((a, b) => a.ev.start.localeCompare(b.ev.start));
 }
 
 /** Facet counts: how many events each option would show, given the other filters. */
@@ -507,7 +558,7 @@ function renderRow(ev) {
     <div class="ev-body">
       <div class="ev-title">
         <span class="badge">${ev.postseason ? 'Playoff' : TYPE_BADGE[ev.type]}</span>
-        ${rc ? changeBadge(rc.kind, rc.at) : ''}
+        ${rc ? changeBadge(rc.kind) : ''}
         ${ev.status ? `<span class="badge warn">${esc(ev.status)}</span>` : ''}
         ${isNow(ev) ? '<span class="badge live">Now</span>' : ''}
         <span class="matchup">${rowTitle(ev)}</span>
@@ -518,15 +569,15 @@ function renderRow(ev) {
         <span class="where">${esc(ev.location)}${ev.field ? ` <span class="field">· ${esc(ev.field)}</span>` : ''}</span>
       </div>
       ${ev.notes ? `<div class="ev-notes">${esc(ev.notes)}</div>` : ''}
-      ${rc?.diffs.length ? `<div class="ev-changes">${rc.diffs.map(diffHtml).join('')}</div>` : ''}
+      ${rc ? explainChanges(null, rc.diffs, ev) : ''}
     </div>
     ${ev.mapUrl ? `<a class="map" href="${esc(ev.mapUrl)}" target="_blank" rel="noopener" title="Map: ${esc(ev.location)}" aria-label="Map">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a5.5 5.5 0 0 0-5.5 5.5c0 4.1 5.5 10.5 5.5 10.5s5.5-6.4 5.5-10.5A5.5 5.5 0 0 0 10 2Zm0 7.75a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Z"/></svg></a>` : ''}
   </article>`;
 }
 
-function changeBadge(kind, at) {
-  return `<span class="badge chg ${kind}" title="${CHANGE_BADGE[kind]} ${timeAgo(at)}">${CHANGE_BADGE[kind]}</span>`;
+function changeBadge(kind) {
+  return `<span class="badge chg ${kind}">${CHANGE_BADGE[kind]}</span>`;
 }
 
 function renderChanges(items) {
@@ -537,7 +588,7 @@ function renderChanges(items) {
   const scoped = f.q || f.types.length || f.divs.length || f.teams.length || f.locs.length;
   const head = `<div class="changes-head">
       <div><h2>What's changed</h2>
-        <p class="muted">New, moved and removed games${scoped ? ' matching your filters' : ''}, newest first.</p></div>
+        <p class="muted">Games that were added, moved or removed${scoped ? ', matching your filters' : ''}, by game date.</p></div>
       <label class="window">Last
         <select id="highlight-days">${[1, 3, 7, 14, 30].map((d) =>
           `<option value="${d}" ${d === days ? 'selected' : ''}>${d === 1 ? '24 hours' : `${d} days`}</option>`).join('')}</select>
@@ -553,35 +604,31 @@ function renderChanges(items) {
         : `No schedule changes in the last ${windowLabel}${scoped ? ' for these filters' : ''}.`}</p></div>${foot}`;
   }
 
-  const groups = new Map();
-  for (const it of items) {
-    const day = F.isoDate(new Date(it.at));
-    if (!groups.has(day)) groups.set(day, []);
-    groups.get(day).push(it);
-  }
-  return head + [...groups].map(([day, list]) => `<section class="day">
-      <h3 class="day-head"><span>${relativeDay(day) || fmtDayLong.format(parseDate(day))}</span><span class="n">${list.length}</span></h3>
+  const t = today();
+  return head + [...groupByDate(items.map((it) => ({ ...it, date: it.ev.date })))].map(([day, list]) => {
+    const rel = relativeDay(day);
+    return `<section class="day ${day === t ? 'is-today' : ''}">
+      <h3 class="day-head"><span>${dayLabel(day)}</span>${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${list.length}</span></h3>
       <div class="day-events">${list.map(renderChangeItem).join('')}</div>
-    </section>`).join('') + foot;
+    </section>`;
+  }).join('') + foot;
 }
 
 function renderChangeItem({ ev, list, at }) {
   const d = state.divisions.get(ev.divisionId);
   const kind = changeKind(list);
-  const diffs = collapseDiffs(list);
   const unseen = at > state.seenMark;
-  const when = `${fmtDayShort.format(parseDate(ev.date))}${ev.allDay ? '' : ` · ${fmtTime(startTime(ev))}`}`;
+  const time = ev.allDay ? '<b>All day</b>' : `<b>${fmtTime(startTime(ev))}</b><span>${fmtTime(endTime(ev))}</span>`;
   return `<article class="ev chg-item chg-${kind} type-${ev.type} ${unseen ? 'unseen' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
-    <div class="ev-time"><b>${fmtClock(at)}</b><span>${unseen ? '<span class="new-dot"></span>new' : ''}</span></div>
+    <div class="ev-time">${time}</div>
     <div class="ev-body">
-      <div class="ev-title">${changeBadge(kind, at)}<span class="matchup">${rowTitle(ev)}</span></div>
+      <div class="ev-title">${changeBadge(kind)}<span class="matchup">${rowTitle(ev)}</span></div>
       <div class="ev-meta">
-        <span class="game-when">${kind === 'removed' ? 'Was ' : ''}${when}</span>
         ${d ? `<span class="div"><span class="dot"></span>${esc(d.label)}</span>` : ''}
         <span class="where">${esc(ev.location)}${ev.field ? ` <span class="field">· ${esc(ev.field)}</span>` : ''}</span>
       </div>
-      ${diffs.length ? `<div class="ev-changes">${diffs.map(diffHtml).join('')}</div>` : ''}
-      ${kind === 'removed' ? '<div class="ev-notes">No longer on the league schedule. It may have been cancelled.</div>' : ''}
+      ${explainChanges(kind, collapseDiffs(list), ev)}
+      <div class="chg-when">${unseen ? '<span class="new-dot" title="New since your last visit"></span>' : ''}${changedWhen(list)}</div>
     </div>
   </article>`;
 }
@@ -747,7 +794,7 @@ function eventDetail(ev) {
     </div>
     <div class="badges">
       <span class="badge type-${ev.type}">${ev.postseason ? 'Playoff' : TYPE_BADGE[ev.type]}</span>
-      ${rc ? changeBadge(rc.kind, rc.at) : ''}
+      ${rc ? changeBadge(rc.kind) : ''}
       ${ev.status ? `<span class="badge warn">${esc(ev.status)}</span>` : ''}
     </div>
     <h2>${esc(ev.title)}</h2>
@@ -786,13 +833,11 @@ function historyHtml(ev) {
     if (!byTime.has(c.at)) byTime.set(c.at, []);
     byTime.get(c.at).push(c);
   }
-  const entries = [...byTime].reverse().map(([at, list]) => {
-    const kind = list.find((c) => c.kind !== 'changed')?.kind;
-    const what = kind === 'added' ? 'Added to the schedule'
-      : kind === 'removed' ? 'Removed from the schedule'
-      : kind === 'restored' ? 'Back on the schedule' : '';
-    return `<li><time>${fmtDayShort.format(new Date(at))}, ${fmtClock(at)}</time>
-      ${what ? `<div>${what}</div>` : ''}${collapseDiffs(list).map(diffHtml).join('')}</li>`;
+  const entries = [...byTime].reverse().map(([, list]) => {
+    const event = list.find((c) => c.kind !== 'changed')?.kind;
+    const kind = event === 'added' ? 'new' : event === 'removed' ? 'removed' : null;
+    return `<li><time>${changedWhen(list)}</time>
+      ${event === 'restored' ? '<div>Back on the schedule.</div>' : ''}${explainChanges(kind, collapseDiffs(list), ev)}</li>`;
   });
   const since = state.data.trackingSince;
   const origin = ev.firstSeen
