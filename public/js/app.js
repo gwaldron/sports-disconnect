@@ -401,28 +401,12 @@ function renderLocations(counts) {
 
 // ---------- rendering: main ----------
 
-function renderChips() {
+/** Active filters are shown in the sidebar; this just keeps the counts and Clear link current. */
+function renderFilterCount() {
   const f = state.filters;
-  const chips = [];
-  if (f.q) chips.push(['q', '', `“${f.q}”`]);
-  if (f.types.length) chips.push(['types', '', f.types.map((t) => TYPE_LABELS[t]).join(' + ')]);
-  for (const id of f.divs) chips.push(['divs', id, state.divisions.get(id)?.label || id, state.divisions.get(id)?.hue]);
-  for (const id of f.teams) {
-    const t = state.teams.get(id);
-    chips.push(['teams', id, t?.name || `Team ${id}`, state.divisions.get(t?.divisionId)?.hue]);
-  }
-  for (const id of f.locs) chips.push(['locs', id, state.data.locations.find((l) => l.id === id)?.name || id]);
-  if (state.view === 'list' && f.range === 'custom' && (f.from || f.to)) {
-    chips.push(['range', '', `${f.from ? fmtDayShort.format(parseDate(f.from)) : '…'} – ${f.to ? fmtDayShort.format(parseDate(f.to)) : '…'}`]);
-  }
-
-  $('#chips').innerHTML = chips.map(([key, id, label, hue]) =>
-    `<span class="chip" ${hue !== undefined ? `style="--h:${hue}"` : ''}>${hue !== undefined ? '<span class="dot"></span>' : ''}${esc(label)}
-      <button data-action="unchip" data-key="${key}" data-id="${esc(id)}" aria-label="Remove filter ${esc(label)}">×</button></span>`).join('')
-    + (chips.length > 1 ? '<button class="linkish" data-action="clear">Clear all</button>' : '');
-
-  const active = chips.length;
+  const active = (f.q ? 1 : 0) + (f.types.length ? 1 : 0) + f.divs.length + f.teams.length + f.locs.length;
   $('#filter-count').textContent = active || '';
+  $('#sidebar-clear').hidden = !active;
 }
 
 function renderMain() {
@@ -677,9 +661,10 @@ function render() {
   $('#q').value !== state.filters.q && ($('#q').value = state.filters.q);
   markChangesSeen();
   renderSidebar(counts);
-  renderChips();
+  renderFilterCount();
   renderMain();
   renderUpdated();
+  syncBarHeights(); // the toolbar's height depends on the view
   writeHash();
 }
 
@@ -788,7 +773,6 @@ function goToDay(date) {
   const [from, to] = F.rangeBounds(state.filters, today());
   if ((from && date < from) || (to && date > to)) state.filters.range = 'all';
   render();
-  syncBarHeights(); // the toolbar just changed height; scroll-margin depends on it
   document.querySelector(`.day[data-date="${date}"]`)?.scrollIntoView({ block: 'start' });
 }
 
@@ -953,13 +937,6 @@ document.addEventListener('click', (e) => {
       if (dialog.open) dialog.close();
       update((f) => { f.teams = [id]; f.divs = []; f.q = ''; });
       break;
-    case 'unchip': update((f) => {
-      const key = el.dataset.key;
-      if (key === 'q') f.q = '';
-      else if (key === 'types') f.types = [];
-      else if (key === 'range') f.range = 'upcoming';
-      else f[key] = f[key].filter((x) => x !== id);
-    }); break;
     case 'clear': {
       const range = state.filters.range;
       state.filters = F.defaultFilters();
@@ -1022,13 +999,16 @@ document.querySelectorAll('.views button').forEach((b) => b.addEventListener('cl
   $('#content').scrollTop = 0;
 }));
 
-// Sticky day headers sit under the (variable-height) toolbar and top bar.
+// Sticky day headers sit under the top bar and toolbar, whose heights vary
+// (the top bar wraps onto two rows on phones), so measure them.
 function syncBarHeights() {
   const root = document.documentElement.style;
   root.setProperty('--toolbar-h', `${$('.toolbar').offsetHeight}px`);
   root.setProperty('--topbar-h', `${$('.topbar').offsetHeight}px`);
 }
-new ResizeObserver(syncBarHeights).observe(document.body);
+const barObserver = new ResizeObserver(syncBarHeights);
+barObserver.observe($('.topbar'));
+barObserver.observe($('.toolbar'));
 
 dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); }); // backdrop
 window.addEventListener('hashchange', () => { readHash(); render(); });
