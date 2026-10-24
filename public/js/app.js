@@ -53,6 +53,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
 function parseDate(d) { const [y, m, day] = d.split('-').map(Number); return new Date(y, m - 1, day); }
 const fmt = (opts) => new Intl.DateTimeFormat(undefined, opts);
 const fmtDayLong = fmt({ weekday: 'long', month: 'long', day: 'numeric' });
+const fmtDayLongYear = fmt({ weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+/** Long day label, with the year only when it isn't this year. */
+const dayLabel = (date) => (date.slice(0, 4) === today().slice(0, 4) ? fmtDayLong : fmtDayLongYear).format(parseDate(date));
 const fmtDayShort = fmt({ weekday: 'short', month: 'short', day: 'numeric' });
 const fmtMonth = fmt({ month: 'long', year: 'numeric' });
 const fmtWeekday = fmt({ weekday: 'short' });
@@ -467,7 +470,7 @@ function renderAgenda(events) {
   return [...groupByDate(events)].map(([date, evs]) => {
     const rel = relativeDay(date);
     return `<section class="day ${date === t ? 'is-today' : ''} ${date < t ? 'is-past' : ''}" data-date="${date}">
-      <h3 class="day-head"><span>${fmtDayLong.format(parseDate(date))}</span>
+      <h3 class="day-head"><span>${dayLabel(date)}</span>
         ${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${evs.filter((e) => !e.removed).length}</span></h3>
       <div class="day-events">${evs.map(renderRow).join('')}</div>
     </section>`;
@@ -774,6 +777,7 @@ function goToDay(date) {
   if ((from && date < from) || (to && date > to)) state.filters.range = 'all';
   render();
   document.querySelector(`.day[data-date="${date}"]`)?.scrollIntoView({ block: 'start' });
+  settleUntil = performance.now() + 300; // our own jump: don't tuck the search row for it
 }
 
 function historyHtml(ev) {
@@ -1009,6 +1013,28 @@ function syncBarHeights() {
 const barObserver = new ResizeObserver(syncBarHeights);
 barObserver.observe($('.topbar'));
 barObserver.observe($('.toolbar'));
+
+// On phones the search row tucks away while scrolling down and comes back on
+// scroll up (CSS only applies it at phone widths). It stays put near the top,
+// while focused, or while a search is active, since it's the only place that
+// shows the query.
+let lastScrollY = scrollY;
+let settleUntil = 0;
+addEventListener('scroll', () => {
+  const y = scrollY;
+  // Collapsing the row shifts the page and the browser adjusts scrollY to
+  // compensate; don't mistake that for the user scrolling back up.
+  if (performance.now() < settleUntil) { lastScrollY = y; return; }
+  const dy = y - lastScrollY;
+  if (Math.abs(dy) < 8) return;
+  lastScrollY = y;
+  const q = $('#q');
+  const tuck = dy > 0 && y > 80 && document.activeElement !== q && !q.value;
+  if (tuck !== document.body.classList.contains('search-tucked')) {
+    document.body.classList.toggle('search-tucked', tuck);
+    settleUntil = performance.now() + 300;
+  }
+}, { passive: true });
 
 dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); }); // backdrop
 window.addEventListener('hashchange', () => { readHash(); render(); });
