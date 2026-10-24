@@ -27,7 +27,10 @@
   // Any SportsConnect site works: add SC_SITE (and SC_MAP_HINT) here. See README.
   "vars": {
     "SC_PORTAL_ID": "52092",
-    "SC_LEAGUE_NAME": "Fairfax Little League"
+    "SC_LEAGUE_NAME": "Fairfax Little League",
+    // Assignr sign-in (umpires) stays off until this and the secret are set:
+    //   npx wrangler secret put ASSIGNR_CLIENT_SECRET
+    "ASSIGNR_CLIENT_ID": ""
   },
   "observability": {
     "enabled": true

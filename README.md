@@ -41,6 +41,28 @@ response and ignores those removals instead of reporting mass cancellations. The
 on Cloudflare (`migrations/`) and in `data/changes.json` locally. A change's timestamp is when the app
 noticed it, which is the first page load (or calendar-feed poll) after the league made the edit.
 
+## Umpires from Assignr
+
+People with an [Assignr](https://www.assignr.com) account can connect it (sidebar → **Umpires · Assignr**)
+to see who's umpiring each game.
+
+- **Private to that person.** Umpire data never appears in the public schedule. Only someone signed in
+  with their own Assignr account gets it, and only what their account can see. An assignor or admin
+  sees whole sites; an umpire sees their own games.
+- **How sign-in works.** The Worker runs the OAuth sign-in, because the client secret can't go to the
+  browser. Tokens are stored in D1 (`assignr_sessions`), keyed by a SHA-256 hash of a random,
+  HttpOnly, Secure session cookie. Only names and positions are kept, never contact details.
+  Disconnecting deletes the session and revokes the token.
+- **Matching.** Assignr games are matched to league games by date, start time (within 20 minutes),
+  venue, teams and age group (`public/js/assignr-match.js`). Games that don't line up are listed
+  under "not matched" in the sidebar instead of being guessed.
+
+**Setup:** register an OAuth app with Assignr (app.assignr.com/developers; you may need to ask
+Assignr Support for API access). Use the redirect URI `https://<your-site>/assignr/callback`. Then set
+`ASSIGNR_CLIENT_ID` in `wrangler.jsonc` and store the secret with `npx wrangler secret put
+ASSIGNR_CLIENT_SECRET`. For the local server, set both as environment variables.
+`ASSIGNR_GAME_URL` (default `https://app.assignr.com/games/{id}`) controls the "Open in Assignr" links.
+
 ## How it works
 
 The SportsConnect calendar page is a Kendo UI app backed by public JSON endpoints under

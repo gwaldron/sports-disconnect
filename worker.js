@@ -8,6 +8,8 @@ import { fetchSchedule } from './lib/sportsconnect.js';
 import { scheduleJson, calendarIcs } from './lib/handlers.js';
 import { trackChanges } from './lib/changes.js';
 import { D1ChangeStore } from './lib/change-store-d1.js';
+import { handleAssignr } from './lib/assignr.js';
+import { D1AssignrSessions } from './lib/assignr-store-d1.js';
 
 const KV_KEY = 'schedule';
 const MIN_REFRESH_MS = 60_000; // page loads within a minute of each other share one fetch
@@ -60,6 +62,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const cfg = loadConfig(env);
+    // Per-user umpire data; handles its own errors.
+    const assignr = await handleAssignr(request, { cfg, sessions: new D1AssignrSessions(env.DB) });
+    if (assignr) return assignr;
     try {
       if (url.pathname === '/api/schedule') {
         // ?refresh is sent once per page load; plain requests get the cache.

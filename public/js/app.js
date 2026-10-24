@@ -1,4 +1,5 @@
 import * as F from './filter.js';
+import { matchAssignr } from './assignr-match.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const LS = {
@@ -34,6 +35,11 @@ const state = {
   changesByMatch: new Map(), // matchId -> changes, oldest first
   eventsByMatch: new Map(),
   removed: [], // last-known versions of games that dropped off the schedule
+  // Assignr (umpires): only for people signed in with their own Assignr account.
+  assignr: null, // { enabled, connected, account, games, error } from /api/assignr
+  umps: new Map(), // event id -> matched Assignr game
+  assignrUnmatched: [],
+  assignrNotice: '',
   highlightDays: load(LS.highlightDays, 3),
   seenMark: '', // changes newer than this were unseen when the Changes view opened
   inChanges: false,
@@ -166,6 +172,87 @@ function applyData(data) {
     state.divisions.set(d.id, { ...d, hue: Math.round((i * 137.508 + 210) % 360) });
     for (const t of d.teams) state.teams.set(t.id, { ...t, divisionId: d.id });
   });
+  matchUmpires();
+}
+
+// ---------- Assignr ----------
+
+async function loadAssignr() {
+  try {
+    const res = await fetch('/api/assignr', { credentials: 'same-origin', cache: 'no-store' });
+    state.assignr = await res.json();
+  } catch {
+    state.assignr = null;
+  }
+  matchUmpires();
+  render();
+}
+
+function matchUmpires() {
+  const games = state.assignr?.connected ? state.assignr.games || [] : [];
+  const { byEvent, unmatched } = matchAssignr(state.events, games);
+  state.umps = byEvent;
+  state.assignrUnmatched = unmatched;
+}
+
+function renderAssignr() {
+  const a = state.assignr;
+  $('#assignr-panel').hidden = !a?.enabled;
+  if (!a?.enabled) return;
+  const notice = state.assignrNotice || a.error;
+  const note = notice ? `<p class="hint error">${esc(notice)}</p>` : '';
+  if (!a.connected) {
+    $('#assignr-body').innerHTML = `${note}
+      <p class="hint">Connect your Assignr account to see the umpires assigned to each game. Only you will see them.</p>
+      <a class="btn block" href="/assignr/login">Connect Assignr</a>`;
+    return;
+  }
+  const withUmps = [...state.umps.values()].filter((g) => g.officials.length).length;
+  const unmatched = state.assignrUnmatched.filter((g) => g.date >= today()).length;
+  $('#assignr-body').innerHTML = `${note}
+    <p class="connected">Connected as <b>${esc(a.account)}</b></p>
+    <p class="hint">${withUmps} game${withUmps === 1 ? '' : 's'} with umpires${unmatched
+      ? ` · <button class="linkish" data-action="assignr-unmatched">${unmatched} not matched</button>` : ''}</p>
+    <div class="row">
+      <a class="btn small" href="${esc(a.assignrUrl)}" target="_blank" rel="noopener">Open Assignr ↗</a>
+      <button class="btn small ghost" data-action="assignr-disconnect">Disconnect</button>
+    </div>`;
+}
+
+/** "PU John Smith · BU open" (compact: last names only). */
+function umpLine(ev, compact = false) {
+  const g = state.umps.get(ev.id);
+  if (!g?.officials.length) return '';
+  const parts = g.officials.map((o) => {
+    const who = o.name ? (compact ? o.name.split(' ').at(-1) : o.name) : 'open';
+    const cls = !o.name ? 'open' : o.declined ? 'declined' : o.accepted ? '' : 'pending';
+    const title = !o.name ? 'Not assigned yet' : o.declined ? 'Declined' : o.accepted ? 'Accepted' : 'Not yet accepted';
+    return `<span class="${cls}" title="${esc(o.position)}: ${title}">${esc(o.abbr)} ${esc(who)}</span>`;
+  }).join(' · ');
+  return compact ? `<span class="umps">${parts}</span>` : `<div class="umps"><span class="lbl">Umpires</span> ${parts}</div>`;
+}
+
+function umpiresHtml(ev) {
+  const g = state.umps.get(ev.id);
+  if (!g) return '';
+  const rows = g.officials.map((o) => `<li><span class="pos">${esc(o.position || o.abbr)}</span>
+      <span>${o.name ? esc(o.name) : '<i class="muted">Not assigned yet</i>'}</span>
+      ${o.name ? `<span class="st ${o.declined ? 'declined' : o.accepted ? 'ok' : 'pending'}">${o.declined ? 'Declined' : o.accepted ? 'Accepted' : 'Pending'}</span>` : ''}</li>`).join('');
+  return `<section class="umpires"><h3>Umpires</h3>
+    ${rows ? `<ul>${rows}</ul>` : '<p class="muted">No positions in Assignr yet.</p>'}
+    <a href="${esc(g.url)}" target="_blank" rel="noopener">Open this game in Assignr ↗</a></section>`;
+}
+
+function unmatchedDialog() {
+  const games = state.assignrUnmatched.filter((g) => g.date >= today());
+  return `<div class="dialog-top"><h2>Not matched</h2>
+      <button class="btn icon ghost" data-action="close-dialog" aria-label="Close">×</button></div>
+    <p class="muted">These Assignr games didn't line up with a game on the league schedule (by date, time, field and teams).</p>
+    <ul class="unmatched">${games.map((g) => `<li>
+      <b>${fmtDayShort.format(parseDate(g.date))} · ${fmtTime(g.start.slice(11, 16))}</b>
+      ${esc([g.home, g.away].filter(Boolean).join(' vs ') || 'Game')}
+      <span class="muted">${esc([g.venue, g.subvenue].filter(Boolean).join(' · '))}</span>
+      <a href="${esc(g.url)}" target="_blank" rel="noopener">Assignr ↗</a></li>`).join('')}</ul>`;
 }
 
 /** The [from, to] window the current view displays. */
@@ -593,6 +680,7 @@ function renderRow(ev) {
         <span class="where">${esc(ev.location)}${ev.field ? ` <span class="field">· ${esc(ev.field)}</span>` : ''}</span>
       </div>
       ${ev.notes ? `<div class="ev-notes">${esc(ev.notes)}</div>` : ''}
+      ${umpLine(ev)}
       ${rc ? explainChanges(null, rc.diffs, ev) : ''}
     </div>
     ${ev.mapUrl ? `<a class="map" href="${esc(ev.mapUrl)}" target="_blank" rel="noopener" title="Map: ${esc(ev.location)}" aria-label="Map">
@@ -731,6 +819,7 @@ function renderDay(events) {
           </span>
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${byLocation ? esc(ev.field) : `${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}`}</span>
+          ${umpLine(ev, true)}
         </button>`;
       }).join('')}</div>
     </section>`).join('')}</div>`;
@@ -756,6 +845,7 @@ function renderWeek(events) {
           </span>
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}</span>
+          ${umpLine(ev, true)}
         </button>`;
       }).join('') || '<p class="none">—</p>'}</div>
     </section>`;
@@ -826,6 +916,7 @@ function markChangesSeen() {
 }
 
 function renderUpdated() {
+  renderAssignr();
   const d = state.data;
   $('#updated').textContent = `Updated ${timeAgo(d.fetchedAt)}`;
   $('#updated').title = new Date(d.fetchedAt).toLocaleString();
@@ -899,6 +990,7 @@ function eventDetail(ev) {
       ${ev.score ? `<dt>Score</dt><dd>${ev.score.home} – ${ev.score.away}</dd>` : ''}
     </dl>
     ${ev.type === 'game' ? teamBlock(ev.home, 'Home') + teamBlock(ev.away, 'Away') : ev.teams.map((t) => teamBlock(t, 'Team')).join('')}
+    ${umpiresHtml(ev)}
     ${historyHtml(ev)}
     ${ev.removed ? '' : `<div class="row actions">
       <a class="btn" href="${ics}">Add to calendar (.ics)</a>
@@ -1090,6 +1182,15 @@ document.addEventListener('click', (e) => {
       render();
       break;
     case 'jump-day': state.anchor = el.dataset.date; render(); break;
+    case 'assignr-unmatched': openDialog(unmatchedDialog()); break;
+    case 'assignr-disconnect':
+      fetch('/assignr/logout', { method: 'POST', credentials: 'same-origin' }).finally(() => {
+        state.assignr = { enabled: true, connected: false };
+        state.assignrNotice = '';
+        matchUmpires();
+        render();
+      });
+      break;
     case 'prev': shiftAnchor(-1); break;
     case 'next': shiftAnchor(1); break;
     case 'today': state.anchor = today(); render(); break;
@@ -1191,6 +1292,12 @@ setInterval(() => state.data && renderUpdated(), 60_000);
 
 setSidebarCollapsed(load(LS.sidebarCollapsed, false));
 readHash();
+// Coming back from Assignr sign-in with a problem: show it, then tidy the URL.
+const assignrError = new URLSearchParams(location.search).get('assignr_error');
+if (assignrError) {
+  state.assignrNotice = assignrError;
+  history.replaceState(null, '', location.pathname + location.hash);
+}
 loadData()
   .then(() => {
     const d = state.data;
@@ -1201,6 +1308,7 @@ loadData()
     for (const id of state.starred) if (!state.teams.has(id)) state.starred.delete(id);
     render();
     checkForUpdates();
+    loadAssignr();
   })
   .catch((err) => {
     $('#content').innerHTML = `<div class="empty-state"><div class="big">🌧️</div>

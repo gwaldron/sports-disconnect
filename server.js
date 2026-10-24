@@ -12,11 +12,14 @@ import { getJson, discoverPortal } from './lib/node-http.js';
 import { scheduleJson, calendarIcs } from './lib/handlers.js';
 import { trackChanges } from './lib/changes.js';
 import { FileChangeStore } from './lib/change-store-file.js';
+import { handleAssignr } from './lib/assignr.js';
+import { FileAssignrSessions } from './lib/assignr-store-file.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
 const CACHE_FILE = path.join(ROOT, 'data', 'cache.json');
 const changeStore = new FileChangeStore(path.join(ROOT, 'data', 'changes.json'));
+const assignrSessions = new FileAssignrSessions(path.join(ROOT, 'data', 'assignr-sessions.json'));
 const cfg = loadConfig(process.env);
 
 const MIME = {
@@ -97,8 +100,25 @@ function send(req, res, status, body, headers = {}) {
   res.end(gzip ? zlib.gzipSync(buf) : buf);
 }
 
+/** Bridge node:http to the fetch-style handler shared with the Worker. */
+async function handleWeb(req, res, handler) {
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
+  const request = new Request(`http://${req.headers.host || 'localhost'}${req.url}`, { method: req.method, headers });
+  const response = await handler(request);
+  if (!response) return false;
+  const out = Object.fromEntries(response.headers);
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length) out['set-cookie'] = cookies;
+  res.writeHead(response.status, out);
+  res.end(Buffer.from(await response.arrayBuffer()));
+  return true;
+}
+
 async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
+
+  if (await handleWeb(req, res, (request) => handleAssignr(request, { cfg, sessions: assignrSessions }))) return;
 
   if (url.pathname === '/api/schedule') {
     // ?refresh is sent once per page load; plain requests get the cache.
