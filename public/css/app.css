@@ -109,7 +109,8 @@ code { font-size: 0.9em; background: var(--surface-2); padding: 1px 4px; border-
   display: flex; align-items: center; gap: 16px; padding: 0 16px;
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 10px; width: calc(var(--sidebar-w) - 32px); flex: none; }
+/* Sized so the search box lines up with the main column: padding + toggle + 2 gaps. */
+.brand { display: flex; align-items: center; gap: 10px; width: calc(var(--sidebar-w) - 84px); flex: none; }
 .brand h1 { margin: 0; font-size: 16px; letter-spacing: -0.01em; line-height: 1.1; }
 .brand .league { margin: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .search {
@@ -130,6 +131,10 @@ code { font-size: 0.9em; background: var(--surface-2); padding: 1px 4px; border-
 .views button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 .top-actions { margin-left: auto; display: flex; gap: 4px; }
 .filters-toggle { display: none; }
+.sidebar-toggle { position: relative; flex: none; }
+.btn svg.icon-stroke { fill: none; stroke: currentColor; stroke-width: 1.5; }
+/* With the sidebar hidden, the toggle carries the active-filter count. */
+.sidebar-toggle .pill-count { display: none; position: absolute; top: 0; right: -4px; }
 .pill-count:not(:empty) {
   background: var(--accent); color: var(--accent-ink); border-radius: 999px; font-size: 11px; padding: 0 6px; line-height: 18px;
 }
@@ -426,6 +431,13 @@ details > summary::-webkit-details-marker { display: none; }
 .copy input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); font-size: 13px; }
 
 /* ---------- responsive ---------- */
+/* Desktop only: the sidebar collapses when the user asks, never on its own. */
+@media (min-width: 861px) {
+  .sidebar-collapsed .layout { grid-template-columns: 1fr; }
+  .sidebar-collapsed .sidebar { display: none; }
+  .sidebar-collapsed .sidebar-toggle .pill-count { display: inline-block; }
+}
+
 @media (max-width: 1100px) {
   :root { --sidebar-w: 290px; }
   .brand { width: auto; }
@@ -439,6 +451,7 @@ details > summary::-webkit-details-marker { display: none; }
   .top-actions { order: 2; }
   .search { order: 3; flex-basis: 100%; max-width: none; }
   .filters-toggle { display: inline-flex; }
+  .sidebar-toggle { display: none; }
   .export-btn { display: none; }
   /* The search row tucks away while scrolling down and returns on scroll up (see app.js). */
   .topbar { transition: row-gap 0.2s ease; }

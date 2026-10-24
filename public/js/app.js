@@ -3,7 +3,7 @@ import * as F from './filter.js';
 const $ = (sel, el = document) => el.querySelector(sel);
 const LS = {
   starred: 'sd.starred', lastHash: 'sd.lastHash', showPast: 'sd.showPast',
-  changesSeen: 'sd.changesSeen', highlightDays: 'sd.highlightDays',
+  changesSeen: 'sd.changesSeen', highlightDays: 'sd.highlightDays', sidebarCollapsed: 'sd.sidebarCollapsed',
 };
 const RANGE_LABELS = {
   upcoming: 'Upcoming', today: 'Today', next7: 'Next 7 days', week: 'This week',
@@ -460,7 +460,17 @@ function renderFilterCount() {
   const f = state.filters;
   const active = (f.q ? 1 : 0) + (f.types.length ? 1 : 0) + f.divs.length + f.teams.length + f.locs.length;
   $('#filter-count').textContent = active || '';
+  $('#sidebar-filter-count').textContent = active || '';
   $('#sidebar-clear').hidden = !active;
+}
+
+/** Desktop sidebar: collapsed only by the toggle button, and remembered. */
+function setSidebarCollapsed(collapsed) {
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  const toggle = $('.sidebar-toggle');
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  toggle.title = collapsed ? 'Show filters' : 'Hide filters';
+  save(LS.sidebarCollapsed, collapsed);
 }
 
 function renderMain() {
@@ -996,6 +1006,10 @@ document.addEventListener('click', (e) => {
     case 'prev': shiftAnchor(-1); break;
     case 'next': shiftAnchor(1); break;
     case 'today': state.anchor = today(); render(); break;
+    case 'toggle-sidebar':
+      setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+      syncBarHeights(); // the toolbar is wider now, so it may wrap differently
+      break;
     case 'open-filters': document.body.classList.add('filters-open'); break;
     case 'close-filters': document.body.classList.remove('filters-open'); break;
     case 'export': openDialog(exportDialog()); break;
@@ -1088,6 +1102,7 @@ setInterval(() => state.data && renderUpdated(), 60_000);
 
 // ---------- boot ----------
 
+setSidebarCollapsed(load(LS.sidebarCollapsed, false));
 readHash();
 loadData()
   .then(() => {
