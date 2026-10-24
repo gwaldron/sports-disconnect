@@ -4,6 +4,7 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const LS = {
   starred: 'sd.starred', lastHash: 'sd.lastHash', showPast: 'sd.showPast',
   changesSeen: 'sd.changesSeen', highlightDays: 'sd.highlightDays', sidebarCollapsed: 'sd.sidebarCollapsed',
+  dayGroup: 'sd.dayGroup',
 };
 const RANGE_LABELS = {
   upcoming: 'Upcoming', today: 'Today', next7: 'Next 7 days', week: 'This week',
@@ -13,7 +14,8 @@ const TYPE_LABELS = { game: 'Games', practice: 'Practices', other: 'Other' };
 const TYPE_BADGE = { game: 'Game', practice: 'Practice', other: 'Event' };
 const CHANGE_BADGE = { new: 'New', moved: 'Moved', updated: 'Updated', removed: 'Removed' };
 const TYPE_NOUN = { game: 'game', practice: 'practice', other: 'event' };
-const VIEWS = ['list', 'week', 'month', 'changes'];
+const VIEWS = ['list', 'day', 'week', 'month', 'changes'];
+const DAY_GROUPS = ['age', 'location'];
 
 const state = {
   data: null,
@@ -94,12 +96,15 @@ function readHash() {
   state.filters = F.parseFilters(p);
   state.view = VIEWS.includes(p.get('view')) ? p.get('view') : 'list';
   state.anchor = /^\d{4}-\d{2}-\d{2}$/.test(p.get('d') || '') ? p.get('d') : today();
+  const by = p.get('by');
+  state.dayGroup = DAY_GROUPS.includes(by) ? by : load(LS.dayGroup, 'age');
 }
 
 function writeHash() {
   const p = F.serializeFilters(state.filters);
   if (state.view !== 'list') p.set('view', state.view);
   if (state.view !== 'list' && state.anchor !== today()) p.set('d', state.anchor);
+  if (state.view === 'day' && state.dayGroup !== 'age') p.set('by', state.dayGroup);
   const hash = p.toString().replace(/%2C/g, ',');
   history.replaceState(null, '', hash ? `#${hash}` : location.pathname);
   save(LS.lastHash, hash);
@@ -173,6 +178,7 @@ function viewWindow() {
     const [first, last] = F.monthBounds(state.anchor);
     return [F.weekStart(first), F.addDays(F.weekStart(last), 6)];
   }
+  if (state.view === 'day') return [state.anchor, state.anchor];
   if (state.view === 'changes') return [today(), ''];
   return F.rangeBounds(state.filters, today());
 }
@@ -475,9 +481,16 @@ function setSidebarCollapsed(collapsed) {
 
 function renderMain() {
   const events = visibleEvents();
-  const isCal = state.view === 'week' || state.view === 'month';
+  const isCal = ['day', 'week', 'month'].includes(state.view);
   $('#cal-nav').hidden = !isCal;
-  if (state.view === 'week') {
+  $('#group-picker').hidden = state.view !== 'day';
+  document.querySelectorAll('#group-picker button').forEach((b) => {
+    b.setAttribute('aria-checked', String(b.dataset.by === state.dayGroup));
+  });
+  if (state.view === 'day') {
+    const rel = relativeDay(state.anchor);
+    $('#cal-title').textContent = dayLabel(state.anchor) + (rel ? ` · ${rel}` : '');
+  } else if (state.view === 'week') {
     const s = F.weekStart(state.anchor);
     const e = F.addDays(s, 6);
     $('#cal-title').textContent = `${fmtDayShort.format(parseDate(s))} – ${fmtDayShort.format(parseDate(e))}`;
@@ -500,6 +513,7 @@ function renderMain() {
     + (live.length ? ` · ${games} game${games === 1 ? '' : 's'}` : '');
 
   if (state.view === 'list') content.innerHTML = events.length ? renderAgenda(events) : emptyState();
+  else if (state.view === 'day') content.innerHTML = renderDay(events);
   else if (state.view === 'week') content.innerHTML = renderWeek(events);
   else content.innerHTML = renderMonth(events);
 }
@@ -654,6 +668,72 @@ function compactTitle(ev) {
   if (ev.type === 'game' && ev.home && ev.away) return `${ev.home.name} v ${ev.away.name}`;
   if (ev.type === 'practice' && ev.home) return `${ev.home.name} (prac)`;
   return ev.title;
+}
+
+/**
+ * Day view columns. By age: one per age group, youngest to oldest, with each
+ * softball level right after the baseball level of the same age. By location:
+ * one per park/school, alphabetically.
+ */
+function dayColumns(events) {
+  const cols = new Map();
+  for (const ev of events) {
+    const d = state.divisions.get(ev.divisionId);
+    let col;
+    if (state.dayGroup === 'location') {
+      col = { key: ev.locationId, label: ev.location, sub: '', rank: [0, 0] };
+    } else if (d) {
+      col = {
+        key: ageGroup(d), label: ageGroup(d), sub: d.label.split(' – ').slice(1).join(' – '),
+        rank: [d.level ?? 99, d.sport === 'Softball' ? 1 : 0], hue: d.hue,
+      };
+    } else {
+      col = { key: '', label: 'Other', sub: '', rank: [999, 0] };
+    }
+    if (!cols.has(col.key)) cols.set(col.key, { ...col, events: [] });
+    cols.get(col.key).events.push(ev);
+  }
+  return [...cols.values()].sort((a, b) =>
+    a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.label.localeCompare(b.label));
+}
+
+function renderDay(events) {
+  if (!events.length) {
+    const near = (dir) => {
+      const later = dir > 0;
+      const hits = state.events.filter((ev) => (later ? ev.date > state.anchor : ev.date < state.anchor)
+        && F.matchesNonDate(ev, state.filters));
+      return later ? hits[0]?.date : hits.at(-1)?.date;
+    };
+    const prev = near(-1);
+    const next = near(1);
+    return `<div class="empty-state"><div class="big">⚾</div>
+      <p>Nothing scheduled on ${dayLabel(state.anchor)}${state.filters.q || state.filters.types.length || state.filters.divs.length
+        || state.filters.teams.length || state.filters.locs.length ? ' with these filters' : ''}.</p>
+      <div class="row">
+        ${prev ? `<button class="btn" data-action="jump-day" data-date="${prev}">‹ ${fmtDayShort.format(parseDate(prev))}</button>` : ''}
+        ${next ? `<button class="btn primary" data-action="jump-day" data-date="${next}">Next: ${fmtDayShort.format(parseDate(next))} ›</button>` : ''}
+      </div></div>`;
+  }
+  const byLocation = state.dayGroup === 'location';
+  return `<div class="dayview">${dayColumns(events).map((col) => `
+    <section class="dcol" ${col.hue !== undefined ? `style="--h:${col.hue}"` : ''}>
+      <h3 title="${esc([col.label, col.sub].filter(Boolean).join(' – '))}">
+        <span class="name">${esc(col.label)}</span>${col.sub ? `<span class="sub">${esc(col.sub)}</span>` : ''}
+        <span class="n">${col.events.length}</span>
+      </h3>
+      <div class="dcol-events">${col.events.map((ev) => {
+        const d = state.divisions.get(ev.divisionId);
+        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
+          <span class="wtop">
+            <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
+            ${byLocation && d ? `<span class="age" title="${esc(d.label)} (${esc(d.sport)})">${esc(ageGroup(d))}</span>` : ''}
+          </span>
+          <span class="title">${esc(compactTitle(ev))}</span>
+          <span class="loc">${byLocation ? esc(ev.field) : `${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}`}</span>
+        </button>`;
+      }).join('')}</div>
+    </section>`).join('')}</div>`;
 }
 
 function renderWeek(events) {
@@ -928,7 +1008,8 @@ function toggle(list, value) {
 }
 
 function shiftAnchor(dir) {
-  if (state.view === 'week') state.anchor = F.addDays(state.anchor, 7 * dir);
+  if (state.view === 'day') state.anchor = F.addDays(state.anchor, dir);
+  else if (state.view === 'week') state.anchor = F.addDays(state.anchor, 7 * dir);
   else {
     const d = parseDate(state.anchor);
     state.anchor = F.isoDate(new Date(d.getFullYear(), d.getMonth() + dir, 1));
@@ -1003,6 +1084,12 @@ document.addEventListener('click', (e) => {
       render();
       break;
     }
+    case 'day-group':
+      state.dayGroup = el.dataset.by;
+      save(LS.dayGroup, state.dayGroup);
+      render();
+      break;
+    case 'jump-day': state.anchor = el.dataset.date; render(); break;
     case 'prev': shiftAnchor(-1); break;
     case 'next': shiftAnchor(1); break;
     case 'today': state.anchor = today(); render(); break;
@@ -1028,7 +1115,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.matches('[data-action="open"], [data-action="day"]')) e.target.click();
   if (e.key === '/' && !e.target.matches('input, textarea')) { e.preventDefault(); $('#q').focus(); }
-  if (state.view !== 'list' && !e.target.matches('input, textarea') && !dialog.open) {
+  if (['day', 'week', 'month'].includes(state.view) && !e.target.matches('input, textarea') && !dialog.open) {
     if (e.key === 'ArrowLeft') shiftAnchor(-1);
     if (e.key === 'ArrowRight') shiftAnchor(1);
   }

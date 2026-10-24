@@ -29,6 +29,7 @@
 
     <nav class="views" role="tablist" aria-label="View">
       <button role="tab" data-view="list">List</button>
+      <button role="tab" data-view="day">Day</button>
       <button role="tab" data-view="week">Week</button>
       <button role="tab" data-view="month">Month</button>
       <button role="tab" data-view="changes">Changes <span class="tab-count" id="changes-count"></span></button>
@@ -104,6 +105,11 @@
           <button class="btn" data-action="today">Today</button>
           <button class="btn icon" data-action="next" aria-label="Next">›</button>
           <h2 id="cal-title"></h2>
+        </div>
+        <div class="group-picker" id="group-picker" role="radiogroup" aria-label="Columns" hidden>
+          <span class="lbl">Columns</span>
+          <button role="radio" data-action="day-group" data-by="age">Age group</button>
+          <button role="radio" data-action="day-group" data-by="location">Location</button>
         </div>
         <div class="result-count" id="result-count"></div>
       </div>

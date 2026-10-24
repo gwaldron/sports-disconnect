@@ -67,6 +67,8 @@ test('playoff placeholders and custom events are handled', () => {
 test('events are sorted and divisions are listed youngest-first', () => {
   assert.deepEqual(data.events.map((e) => e.matchId), [4, 1, 2, 3]);
   assert.deepEqual(data.divisions.map((d) => d.label), ['AAA – Minors', 'Majors']);
+  // The Day view sorts age-group columns by this rank.
+  assert.deepEqual(data.divisions.map((d) => d.level), [5, 6]);
 });
 
 test('team and division filters combine as a union; types narrow', () => {
