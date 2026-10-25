@@ -1,11 +1,13 @@
 import * as F from './filter.js';
 import { matchAssignr } from './assignr-match.js';
 import { assignrDayUrl } from './assignr-links.js';
+import { syncStatus } from './assignr-sync.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const LS = {
   starred: 'sd.starred', lastHash: 'sd.lastHash', showPast: 'sd.showPast',
   changesSeen: 'sd.changesSeen', highlightDays: 'sd.highlightDays', sidebarCollapsed: 'sd.sidebarCollapsed',
+  todoOnly: 'sd.todoOnly',
   dayGroup: 'sd.dayGroup',
 };
 const RANGE_LABELS = {
@@ -41,6 +43,8 @@ const state = {
   umps: new Map(), // event id -> matched Assignr game
   assignrUnmatched: [],
   assignrNotice: '',
+  doneByKey: new Map(), // change key -> { at, by }: "Mark done", shared per Assignr site
+  todoOnly: load(LS.todoOnly, false),
   highlightDays: load(LS.highlightDays, 3),
   seenMark: '', // changes newer than this were unseen when the Changes view opened
   inChanges: false,
@@ -194,6 +198,7 @@ function matchUmpires() {
   const { byEvent, unmatched } = matchAssignr(state.events, games);
   state.umps = byEvent;
   state.assignrUnmatched = unmatched;
+  state.doneByKey = new Map((state.assignr?.done || []).map((d) => [d.key, d]));
 }
 
 function renderAssignr() {
@@ -704,7 +709,24 @@ function changeBadge(kind) {
   return `<span class="badge chg ${kind}">${CHANGE_BADGE[kind]}</span>`;
 }
 
-function renderChanges(items) {
+/** Adds Assignr sync status to change items (connected users only). */
+function withSync(items) {
+  const connected = state.assignr?.connected && state.assignr.games;
+  return items.map((it) => {
+    const sync = connected
+      ? syncStatus({ ev: it.ev, kind: changeKind(it.list), diffs: collapseDiffs(it.list) }, { games: state.assignr.games, byEvent: state.umps })
+      : null;
+    const key = it.list.at(-1).id; // a newer change gets a new key, so it needs attention again
+    const done = state.doneByKey.get(key);
+    return { ...it, sync, key, done, needs: !!sync && sync.state !== 'synced' && !done };
+  });
+}
+
+function renderChanges(allItems) {
+  const connected = !!state.assignr?.connected;
+  let items = withSync(allItems);
+  const needs = items.filter((it) => it.needs).length;
+  if (connected && state.todoOnly) items = items.filter((it) => it.needs);
   const days = state.highlightDays;
   const windowLabel = days === 1 ? '24 hours' : `${days} days`;
   const since = state.data.trackingSince;
@@ -713,14 +735,22 @@ function renderChanges(items) {
   const head = `<div class="changes-head">
       <div><h2>What's changed</h2>
         <p class="muted">Games that were added, moved or removed${scoped ? ', matching your filters' : ''}, by game date.</p></div>
-      <label class="window">Last
-        <select id="highlight-days">${[1, 3, 7, 14, 30].map((d) =>
-          `<option value="${d}" ${d === days ? 'selected' : ''}>${d === 1 ? '24 hours' : `${d} days`}</option>`).join('')}</select>
-      </label>
+      <div class="changes-controls">
+        ${connected ? `<label class="todo-toggle"><input type="checkbox" id="todo-only" ${state.todoOnly ? 'checked' : ''}>
+          Only what needs updating in Assignr <span class="count">${needs || ''}</span></label>` : ''}
+        <label class="window">Last
+          <select id="highlight-days">${[1, 3, 7, 14, 30].map((d) =>
+            `<option value="${d}" ${d === days ? 'selected' : ''}>${d === 1 ? '24 hours' : `${d} days`}</option>`).join('')}</select>
+        </label>
+      </div>
     </div>`;
   const foot = `<p class="hint changes-foot">The league site is checked each time this page is opened.
     ${since ? `Tracking changes since ${fmtDayShort.format(new Date(since))}.` : ''}</p>`;
 
+  if (!items.length && allItems.length) {
+    return `${head}<div class="empty-state"><div class="big">✅</div>
+      <p>Assignr is up to date with every change${scoped ? ' matching your filters' : ''} in the last ${windowLabel}.</p></div>${foot}`;
+  }
   if (!items.length) {
     const young = since && Date.now() - Date.parse(since) < days * 86400_000;
     return `${head}<div class="empty-state"><div class="big">✅</div>
@@ -738,12 +768,14 @@ function renderChanges(items) {
   }).join('') + foot;
 }
 
-function renderChangeItem({ ev, list, at }) {
+function renderChangeItem(it) {
+  const { ev, list, at } = it;
   const d = state.divisions.get(ev.divisionId);
   const kind = changeKind(list);
   const unseen = at > state.seenMark;
+  const resolved = it.sync && !it.needs;
   const time = ev.allDay ? '<b>All day</b>' : `<b>${fmtTime(startTime(ev))}</b><span>${fmtTime(endTime(ev))}</span>`;
-  return `<article class="ev chg-item chg-${kind} type-${ev.type} ${unseen ? 'unseen' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
+  return `<article class="ev chg-item chg-${kind} type-${ev.type} ${unseen ? 'unseen' : ''} ${resolved ? 'resolved' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
     <div class="ev-time">${time}</div>
     <div class="ev-body">
       <div class="ev-title">${changeBadge(kind)}<span class="matchup">${rowTitle(ev)}</span></div>
@@ -753,8 +785,32 @@ function renderChangeItem({ ev, list, at }) {
       </div>
       ${explainChanges(kind, collapseDiffs(list), ev)}
       <div class="chg-when">${unseen ? '<span class="new-dot" title="New since your last visit"></span>' : ''}${changedWhen(list)}</div>
+      ${syncHtml(it)}
     </div>
   </article>`;
+}
+
+/** What Assignr currently shows for the fields that are out of date. */
+function assignrShows({ game: g, fields }) {
+  const parts = [];
+  if (fields.includes('when') && g.start) parts.push(`${fmtDayShort.format(parseDate(g.date))} · ${fmtTime(g.start.slice(11, 16))}`);
+  if (fields.includes('where')) parts.push([g.venue, g.subvenue].filter(Boolean).join(' · '));
+  if (fields.includes('home') || fields.includes('away')) parts.push([g.home, g.away].filter(Boolean).join(' vs '));
+  return parts.filter(Boolean).join(', ');
+}
+
+function syncHtml({ sync: s, done, key }) {
+  if (!s) return '';
+  const [cls, label] = s.state === 'synced' ? ['ok', '✓ In sync with Assignr']
+    : s.state === 'missing' ? ['todo', 'Not in Assignr yet']
+    : s.state === 'stale' ? ['todo', s.reason === 'active' ? 'Still active in Assignr' : `Needs update: Assignr still shows ${assignrShows(s)}`]
+    : ['unsure', s.game ? "Can't tell if Assignr matches" : "Couldn't find this game in Assignr"];
+  const link = s.game?.url ? `<a href="${esc(s.game.url)}" target="_blank" rel="noopener">Open in Assignr ↗</a>` : '';
+  const toggle = s.state === 'synced' ? '' : `<button class="done-toggle ${done ? 'on' : ''}" data-action="mark-done"
+      data-key="${esc(key)}" data-done="${done ? 0 : 1}" aria-pressed="${!!done}"
+      title="${done ? `Marked done${done.by ? ` by ${esc(done.by)}` : ''} ${esc(fmtMoment(done.at))}. Click to undo.` : 'Mark this change as handled, for everyone on your Assignr site'}">
+      ${done ? `✓ Done${done.by ? ` · ${esc(done.by.split(' ')[0])}` : ''}` : 'Mark done'}</button>`;
+  return `<div class="sync ${done ? 'done' : cls}"><span>${esc(label)}</span>${link}${toggle}</div>`;
 }
 
 /** "AA – Minors" -> "AA". Softball shares level names with baseball, so it gets a tag. */
@@ -1136,7 +1192,7 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   if (el.tagName === 'A' && el.dataset.action !== 'open') return;
-  if (e.target.closest('a.map')) return; // let map links through
+  if (e.target.closest('a')) return; // let links inside cards through
   const { action, id } = el.dataset;
 
   switch (action) {
@@ -1195,6 +1251,22 @@ document.addEventListener('click', (e) => {
       break;
     case 'jump-day': state.anchor = el.dataset.date; render(); break;
     case 'assignr-unmatched': openDialog(unmatchedDialog()); break;
+    case 'mark-done': {
+      const { key } = el.dataset;
+      const done = el.dataset.done === '1';
+      // Show it right away; the server's answer (shared with other assignors) replaces this.
+      if (done) state.doneByKey.set(key, { key, at: new Date().toISOString(), by: state.assignr?.account });
+      else state.doneByKey.delete(key);
+      render();
+      fetch('/api/assignr/done', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, done }),
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .then((body) => { state.assignr.done = body.done; matchUmpires(); render(); })
+        .catch(() => { state.assignrNotice = "Couldn't save Mark done. Please try again."; loadAssignr(); });
+      break;
+    }
     case 'assignr-disconnect':
       fetch('/assignr/logout', { method: 'POST', credentials: 'same-origin' }).finally(() => {
         state.assignr = { enabled: true, connected: false };
@@ -1238,6 +1310,11 @@ document.addEventListener('change', (e) => {
   const { kind } = e.target.dataset;
   if (kind) update((f) => toggle(f[{ div: 'divs', team: 'teams', loc: 'locs' }[kind]], e.target.value));
   if (e.target.id === 'from' || e.target.id === 'to') update((f) => { f[e.target.id] = e.target.value; });
+  if (e.target.id === 'todo-only') {
+    state.todoOnly = e.target.checked;
+    save(LS.todoOnly, state.todoOnly);
+    render();
+  }
   if (e.target.id === 'highlight-days') {
     state.highlightDays = Number(e.target.value);
     save(LS.highlightDays, state.highlightDays);

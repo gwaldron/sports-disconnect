@@ -365,6 +365,26 @@ details > summary::-webkit-details-marker { display: none; }
 .dcol h3 .n { flex: none; margin-left: auto; font-size: 12px; font-weight: 500; color: var(--muted); }
 .dcol-events { display: grid; gap: 5px; padding: 6px; }
 
+/* Assignr sync status on changes (assignors) */
+.changes-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.todo-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.todo-toggle .count:not(:empty) {
+  min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--chg-upd); color: #fff;
+  font-size: 11px; line-height: 18px; text-align: center; font-weight: 650;
+}
+.sync { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: 12.5px; font-weight: 600; }
+.sync.ok { color: var(--chg-new); }
+.sync.todo { color: var(--chg-upd); }
+.sync.unsure, .sync.done { color: var(--muted); font-weight: 500; }
+.sync a { font-weight: 500; }
+.done-toggle {
+  height: 24px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-2); font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.done-toggle:hover { background: var(--surface-2); }
+.done-toggle.on { background: var(--chg-new); border-color: var(--chg-new); color: #fff; }
+.chg-item.resolved { opacity: 0.62; }
+
 /* Assignr: umpires (only for signed-in Assignr users) */
 .assignr .connected { margin: 0 0 4px; font-size: 14px; }
 .assignr .hint.error { color: var(--chg-del); }

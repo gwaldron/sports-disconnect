@@ -12,7 +12,7 @@ export function tokens(s) {
 }
 
 /** Share of the smaller set found in the larger one (0..1). */
-function overlap(a, b) {
+export function overlap(a, b) {
   if (!a.size || !b.size) return 0;
   let n = 0;
   for (const w of a) if (b.has(w)) n++;

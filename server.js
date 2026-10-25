@@ -19,7 +19,8 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
 const CACHE_FILE = path.join(ROOT, 'data', 'cache.json');
 const changeStore = new FileChangeStore(path.join(ROOT, 'data', 'changes.json'));
-const assignrSessions = new FileAssignrSessions(path.join(ROOT, 'data', 'assignr-sessions.json'));
+const assignrSessions = new FileAssignrSessions(
+  path.join(ROOT, 'data', 'assignr-sessions.json'), path.join(ROOT, 'data', 'assignr-done.json'));
 const cfg = loadConfig(process.env);
 
 const MIME = {
@@ -104,7 +105,13 @@ function send(req, res, status, body, headers = {}) {
 async function handleWeb(req, res, handler) {
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
-  const request = new Request(`http://${req.headers.host || 'localhost'}${req.url}`, { method: req.method, headers });
+  let body;
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    body = Buffer.concat(chunks);
+  }
+  const request = new Request(`http://${req.headers.host || 'localhost'}${req.url}`, { method: req.method, headers, body });
   const response = await handler(request);
   if (!response) return false;
   const out = Object.fromEntries(response.headers);

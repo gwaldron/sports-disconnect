@@ -106,8 +106,33 @@ function fakeAssignr() {
 
 function memorySessions() {
   const m = new Map();
-  return { m, get: async (k) => m.get(k) || null, put: async (s) => { m.set(s.idHash, structuredClone(s)); }, delete: async (k) => { m.delete(k); } };
+  const done = new Map(); // scope -> Map(key -> mark)
+  return {
+    m, done,
+    get: async (k) => m.get(k) || null,
+    put: async (s) => { m.set(s.idHash, structuredClone(s)); },
+    delete: async (k) => { m.delete(k); },
+    listDone: async (scope) => [...(done.get(scope) || new Map())].map(([key, v]) => ({ key, ...v })),
+    setDone: async (scope, key, mark) => {
+      if (!done.has(scope)) done.set(scope, new Map());
+      if (mark) done.get(scope).set(key, mark); else done.get(scope).delete(key);
+    },
+  };
 }
+
+async function signIn(deps) {
+  const login = await handleAssignr(req('/assignr/login'), deps);
+  const state = new URL(login.headers.get('location')).searchParams.get('state');
+  const cb = await handleAssignr(req(`/assignr/callback?code=good&state=${state}`, { cookie: `sd_as_state=${state}` }), deps);
+  const sid = setCookies(cb).sd_as;
+  await handleAssignr(req('/api/assignr', { cookie: `sd_as=${sid}` }), deps); // first load sets the site scope
+  return sid;
+}
+
+const post = (path, sid, body, origin = 'https://sd.test') => new Request(`https://sd.test${path}`, {
+  method: 'POST', body: JSON.stringify(body),
+  headers: { cookie: `sd_as=${sid}`, 'content-type': 'application/json', origin },
+});
 
 const req = (path, { cookie, method = 'GET' } = {}) =>
   new Request(`https://sd.test${path}`, { method, headers: cookie ? { cookie } : {} });
@@ -171,4 +196,32 @@ test('day links use Assignr\'s own filter format', async () => {
   assert.equal(assignrDayUrl(t, '2026-10-06'),
     'https://fairfaxll.assignr.com/games?filter%5Bend_date%5D=Oct+6+2026&filter%5Bstart_date%5D=Oct+6+2026');
   assert.equal(assignrDayUrl('{date} {mdy} {text}', '2026-09-30'), '2026-09-30 9/30/2026 Sep+30+2026');
+});
+
+test('Mark done is shared across people on the same Assignr site', async () => {
+  const sessions = memorySessions();
+  const deps = { cfg, sessions, fetchImpl: fakeAssignr().fetchImpl };
+  const me = await signIn(deps);
+  const colleague = await signIn(deps);
+
+  const res = await handleAssignr(post('/api/assignr/done', me, { key: '14130358.2.when', done: true }), deps);
+  assert.deepEqual((await res.json()).done.map((d) => [d.key, d.by]), [['14130358.2.when', 'Pat Ump']]);
+  assert.ok(sessions.done.has('site:9'));
+
+  // The other assignor sees it on their next load...
+  const theirs = await (await handleAssignr(req('/api/assignr', { cookie: `sd_as=${colleague}` }), deps)).json();
+  assert.deepEqual(theirs.done.map((d) => d.key), ['14130358.2.when']);
+  // ...and can undo it.
+  await handleAssignr(post('/api/assignr/done', colleague, { key: '14130358.2.when', done: false }), deps);
+  assert.equal(sessions.done.get('site:9').size, 0);
+});
+
+test('Mark done refuses other sites, signed-out callers and junk keys', async () => {
+  const sessions = memorySessions();
+  const deps = { cfg, sessions, fetchImpl: fakeAssignr().fetchImpl };
+  const sid = await signIn(deps);
+  assert.equal((await handleAssignr(post('/api/assignr/done', sid, { key: 'a.1.when', done: true }, 'https://evil.test'), deps)).status, 403);
+  assert.equal((await handleAssignr(post('/api/assignr/done', 'nope', { key: 'a.1.when', done: true }), deps)).status, 401);
+  assert.equal((await handleAssignr(post('/api/assignr/done', sid, { key: '<script>', done: true }), deps)).status, 400);
+  assert.equal(sessions.done.get('site:9')?.size ?? 0, 0);
 });

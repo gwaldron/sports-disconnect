@@ -57,6 +57,19 @@ to see who's umpiring each game.
   venue, teams and age group (`public/js/assignr-match.js`). Games that don't line up are listed
   under "not matched" in the sidebar instead of being guessed.
 
+**Keeping Assignr in sync (assignors):** in the **Changes** view, every changed game shows whether
+Assignr has caught up (`public/js/assignr-sync.js`). It compares the change's old and new values with
+the matching Assignr game:
+
+- **✓ In sync with Assignr:** Assignr has the new time and field. Fixing a game in Assignr and reloading clears it automatically.
+- **Needs update:** Assignr still shows the old time, field or teams ("Assignr still shows Tue, Oct 27 · 4:00 PM").
+- **Not in Assignr yet:** a new game. **Still active in Assignr:** a removed game.
+- **Can't tell:** when the check isn't sure, **Mark done** dismisses the item. Mark done is shared by everyone
+  connected to the same Assignr site, and a newer change to the same game re-opens it.
+- **Only what needs updating in Assignr** turns the list into a to-do list.
+
+Practices and note-only changes are ignored, because they don't affect umpires.
+
 **Setup:** register an OAuth app with Assignr (app.assignr.com/developers; you may need to ask
 Assignr Support for API access). Use the redirect URI `https://<your-site>/assignr/callback`. Then set
 `ASSIGNR_CLIENT_ID` in `wrangler.jsonc` and store the secret with `npx wrangler secret put
