@@ -28,9 +28,9 @@
   "vars": {
     "SC_PORTAL_ID": "52092",
     "SC_LEAGUE_NAME": "Fairfax Little League",
-    // Assignr sign-in (umpires) stays off until this and the secret are set:
+    // Assignr sign-in (umpires). The secret is stored separately:
     //   npx wrangler secret put ASSIGNR_CLIENT_SECRET
-    "ASSIGNR_CLIENT_ID": ""
+    "ASSIGNR_CLIENT_ID": "me_HF7WpOvqKMPVwcjnRAK9EiJ14lWKykNxUL29JuaU"
   },
   "observability": {
     "enabled": true
