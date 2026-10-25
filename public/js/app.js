@@ -232,6 +232,17 @@ function umpLine(ev, compact = false) {
   return compact ? `<span class="umps">${parts}</span>` : `<div class="umps"><span class="lbl">Umpires</span> ${parts}</div>`;
 }
 
+/** Shield button opening Assignr's games list for a day (connected users only). */
+function assignrDayLink(date) {
+  const a = state.assignr;
+  if (!a?.connected || !a.dayUrl) return '';
+  const [y, m, d] = date.split('-');
+  const href = a.dayUrl.replaceAll('{date}', date).replaceAll('{mdy}', `${+m}/${+d}/${y}`);
+  const label = `Open ${fmtDayShort.format(parseDate(date))} in Assignr`;
+  return `<a class="assignr-day" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(label)}" aria-label="${esc(label)}">
+    <img src="/img/assignr.png" alt="" width="16" height="16"></a>`;
+}
+
 function umpiresHtml(ev) {
   const g = state.umps.get(ev.id);
   if (!g) return '';
@@ -574,6 +585,7 @@ function renderMain() {
   document.querySelectorAll('#group-picker button').forEach((b) => {
     b.setAttribute('aria-checked', String(b.dataset.by === state.dayGroup));
   });
+  $('#cal-assignr').innerHTML = state.view === 'day' ? assignrDayLink(state.anchor) : '';
   if (state.view === 'day') {
     const rel = relativeDay(state.anchor);
     $('#cal-title').textContent = dayLabel(state.anchor) + (rel ? ` · ${rel}` : '');
@@ -633,7 +645,7 @@ function renderAgenda(events) {
     const rel = relativeDay(date);
     return `<section class="day ${date === t ? 'is-today' : ''} ${date < t ? 'is-past' : ''}" data-date="${date}">
       <h3 class="day-head"><span>${dayLabel(date)}</span>
-        ${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${evs.filter((e) => !e.removed).length}</span></h3>
+        ${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${evs.filter((e) => !e.removed).length}</span>${assignrDayLink(date)}</h3>
       <div class="day-events">${evs.map(renderRow).join('')}</div>
     </section>`;
   }).join('');
@@ -835,7 +847,7 @@ function renderWeek(events) {
     const evs = byDate.get(date) || [];
     html += `<section class="wday ${date === t ? 'is-today' : ''} ${date < t ? 'is-past' : ''}">
       <h3><span class="dow">${fmtWeekday.format(parseDate(date))}</span> <span class="num">${parseDate(date).getDate()}</span>
-        ${evs.length ? `<span class="n">${evs.length}</span>` : ''}</h3>
+        ${evs.length ? `<span class="n">${evs.length}</span>` : ''}${assignrDayLink(date)}</h3>
       <div class="wday-events">${evs.map((ev) => {
         const d = state.divisions.get(ev.divisionId);
         return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">

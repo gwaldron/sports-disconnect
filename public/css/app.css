@@ -368,6 +368,16 @@ details > summary::-webkit-details-marker { display: none; }
 /* Assignr: umpires (only for signed-in Assignr users) */
 .assignr .connected { margin: 0 0 4px; font-size: 14px; }
 .assignr .hint.error { color: var(--chg-del); }
+.assignr-day {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 26px; height: 26px; margin: -4px -4px -4px 4px; border-radius: 6px;
+}
+.assignr-day:hover { background: var(--surface-2); }
+.assignr-day img { width: 16px; height: 16px; }
+.wday.is-today .assignr-day { background: #fff; } /* keep the blue shield visible on the blue header */
+#cal-assignr:empty { display: none; }
+#cal-assignr .assignr-day { width: 32px; height: 32px; margin: 0 0 0 2px; }
+#cal-assignr .assignr-day img { width: 20px; height: 20px; }
 .umps { font-size: 12.5px; color: var(--text-2); }
 div.umps { margin-top: 4px; }
 .umps .lbl { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-right: 4px; }

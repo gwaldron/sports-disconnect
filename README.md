@@ -61,7 +61,9 @@ to see who's umpiring each game.
 Assignr Support for API access). Use the redirect URI `https://<your-site>/assignr/callback`. Then set
 `ASSIGNR_CLIENT_ID` in `wrangler.jsonc` and store the secret with `npx wrangler secret put
 ASSIGNR_CLIENT_SECRET`. For the local server, set both as environment variables.
-`ASSIGNR_GAME_URL` (default `https://app.assignr.com/games/{id}`) controls the "Open in Assignr" links.
+`ASSIGNR_GAME_URL` (default `https://app.assignr.com/games/{id}`) controls the "Open in Assignr" links on games.
+`ASSIGNR_DAY_URL` controls the Assignr shield button on each day header in the List, Day and Week views, which opens
+that day's games in Assignr. It accepts `{date}` (2026-10-24) and `{mdy}` (10/24/2026).
 
 ## How it works
 
