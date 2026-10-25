@@ -225,7 +225,16 @@ function renderAssignr() {
     </div>`;
 }
 
-/** "PU John Smith · BU open" (compact: last names only). */
+/** "✋2" on open positions when officials have asked to work the game. */
+function requestBadge(g) {
+  const n = g.requests?.length || 0;
+  if (!n) return '';
+  const names = g.requests.map((r) => r.name).filter(Boolean).join(', ');
+  const label = `${n} request${n === 1 ? '' : 's'} to work this game${names ? `: ${names}` : ''}`;
+  return ` <span class="req" title="${esc(label)}" aria-label="${esc(label)}">✋${n > 1 ? n : ''}</span>`;
+}
+
+/** "PU John Smith · BU open ✋" (compact: last names only). */
 function umpLine(ev, compact = false) {
   const g = state.umps.get(ev.id);
   if (!g?.officials.length) return '';
@@ -233,7 +242,7 @@ function umpLine(ev, compact = false) {
     const who = o.name ? (compact ? o.name.split(' ').at(-1) : o.name) : 'open';
     const cls = !o.name ? 'open' : o.declined ? 'declined' : o.accepted ? '' : 'pending';
     const title = !o.name ? 'Not assigned yet' : o.declined ? 'Declined' : o.accepted ? 'Accepted' : 'Not yet accepted';
-    return `<span class="${cls}" title="${esc(o.position)}: ${title}">${esc(o.abbr)} ${esc(who)}</span>`;
+    return `<span class="${cls}" title="${esc(o.position)}: ${title}">${esc(o.abbr)} ${esc(who)}${o.name ? '' : requestBadge(g)}</span>`;
   }).join(' · ');
   return compact ? `<span class="umps">${parts}</span>` : `<div class="umps"><span class="lbl">Umpires</span> ${parts}</div>`;
 }
@@ -252,7 +261,8 @@ function umpiresHtml(ev) {
   const g = state.umps.get(ev.id);
   if (!g) return '';
   const rows = g.officials.map((o) => `<li><span class="pos">${esc(o.position || o.abbr)}</span>
-      <span>${o.name ? esc(o.name) : '<i class="muted">Not assigned yet</i>'}</span>
+      <span>${o.name ? esc(o.name) : `<i class="muted">Not assigned yet</i>${g.requests?.length
+        ? ` <span class="req-list">✋ Requested by ${esc(g.requests.map((r) => r.name || 'an official').join(', '))}</span>` : ''}`}</span>
       ${o.name ? `<span class="st ${o.declined ? 'declined' : o.accepted ? 'ok' : 'pending'}">${o.declined ? 'Declined' : o.accepted ? 'Accepted' : 'Pending'}</span>` : ''}</li>`).join('');
   return `<section class="umpires"><h3>Umpires</h3>
     ${rows ? `<ul>${rows}</ul>` : '<p class="muted">No positions in Assignr yet.</p>'}

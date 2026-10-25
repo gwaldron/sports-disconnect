@@ -68,6 +68,16 @@ test('normalizes a game to names and positions only, in league time', () => {
   assert.equal(g.url, 'https://auth.test/games/77');
   assert.deepEqual(g.officials.map((o) => [o.abbr, o.name, o.accepted]), [['PU', 'Pat Smith', true], ['BU', '', false]]);
   assert.ok(!JSON.stringify(g).includes('pat@example.com'), 'no contact details');
+  assert.deepEqual(g.requests, []);
+});
+
+test('captures officials asking to work a game', () => {
+  const official = (first, last) => ({ _embedded: { official: { first_name: first, last_name: last, email: 'x@example.com' } } });
+  const one = normalizeGame({ id: 1, _embedded: { game_request: { status: 'A', ...official('Sam', 'Patel') } } }, 'America/New_York', A);
+  assert.deepEqual(one.requests, [{ name: 'Sam Patel', status: 'A' }]);
+  const many = normalizeGame({ id: 2, _embedded: { game_requests: [official('Sam', 'Patel'), official('Jo', 'Kim')] } }, 'America/New_York', A);
+  assert.deepEqual(many.requests.map((r) => r.name), ['Sam Patel', 'Jo Kim']);
+  assert.ok(!JSON.stringify(many).includes('x@example.com'));
 });
 
 test('localDateTime handles DST and bad input', () => {

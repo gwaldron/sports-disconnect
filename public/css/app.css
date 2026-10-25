@@ -404,6 +404,8 @@ div.umps { margin-top: 4px; }
 .umps .pending { font-style: italic; color: var(--muted); }
 .umps .open { color: var(--chg-upd); font-weight: 600; }
 .umps .declined { color: var(--chg-del); text-decoration: line-through; }
+.umps .req, .req-list { color: var(--chg-new); font-weight: 650; font-style: normal; cursor: help; }
+.req-list { font-size: 13px; margin-left: 4px; }
 .wev .umps { font-size: 11.5px; overflow-wrap: anywhere; }
 .umpires { margin: 0 0 14px; }
 .umpires h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
