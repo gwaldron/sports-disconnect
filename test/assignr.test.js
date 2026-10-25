@@ -163,3 +163,12 @@ test('sign in, see games, refresh an expiring token, and sign out', async () => 
   assert.equal(sessions.m.size, 0);
   assert.ok(calls.some((u) => u.endsWith('/oauth/revoke')));
 });
+
+test('day links use Assignr\'s own filter format', async () => {
+  const { assignrDayUrl } = await import('../public/js/assignr-links.js');
+  const t = 'https://fairfaxll.assignr.com/games?filter%5Bend_date%5D={text}&filter%5Bstart_date%5D={text}';
+  // The example URL copied from Assignr for Oct 6, 2026.
+  assert.equal(assignrDayUrl(t, '2026-10-06'),
+    'https://fairfaxll.assignr.com/games?filter%5Bend_date%5D=Oct+6+2026&filter%5Bstart_date%5D=Oct+6+2026');
+  assert.equal(assignrDayUrl('{date} {mdy} {text}', '2026-09-30'), '2026-09-30 9/30/2026 Sep+30+2026');
+});

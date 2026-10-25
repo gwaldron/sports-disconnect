@@ -63,7 +63,9 @@ Assignr Support for API access). Use the redirect URI `https://<your-site>/assig
 ASSIGNR_CLIENT_SECRET`. For the local server, set both as environment variables.
 `ASSIGNR_GAME_URL` (default `https://app.assignr.com/games/{id}`) controls the "Open in Assignr" links on games.
 `ASSIGNR_DAY_URL` controls the Assignr shield button on each day header in the List, Day and Week views, which opens
-that day's games in Assignr. It accepts `{date}` (2026-10-24) and `{mdy}` (10/24/2026).
+that day's games in Assignr. The default is
+`https://app.assignr.com/games?filter%5Bstart_date%5D={text}&filter%5Bend_date%5D={text}`. Tokens: `{text}`
+(Oct+6+2026, the format Assignr's own filters use), `{date}` (2026-10-06) and `{mdy}` (10/6/2026).
 
 ## How it works
 

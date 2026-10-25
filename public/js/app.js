@@ -1,5 +1,6 @@
 import * as F from './filter.js';
 import { matchAssignr } from './assignr-match.js';
+import { assignrDayUrl } from './assignr-links.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const LS = {
@@ -236,8 +237,7 @@ function umpLine(ev, compact = false) {
 function assignrDayLink(date) {
   const a = state.assignr;
   if (!a?.connected || !a.dayUrl) return '';
-  const [y, m, d] = date.split('-');
-  const href = a.dayUrl.replaceAll('{date}', date).replaceAll('{mdy}', `${+m}/${+d}/${y}`);
+  const href = assignrDayUrl(a.dayUrl, date);
   const label = `Open ${fmtDayShort.format(parseDate(date))} in Assignr`;
   return `<a class="assignr-day" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(label)}" aria-label="${esc(label)}">
     <img src="/img/assignr.png" alt="" width="16" height="16"></a>`;
