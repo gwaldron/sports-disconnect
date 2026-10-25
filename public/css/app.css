@@ -309,8 +309,6 @@ details > summary::-webkit-details-marker { display: none; }
 .ev.chg-new, .ev.chg-updated, .ev.chg-moved { box-shadow: var(--shadow), 0 0 0 1.5px color-mix(in oklch, var(--c) 70%, transparent); }
 .ev.chg-new { --c: var(--chg-new); background: color-mix(in oklch, var(--chg-new) 6%, var(--surface)); }
 .ev.chg-updated, .ev.chg-moved { --c: var(--chg-upd); background: color-mix(in oklch, var(--chg-upd) 6%, var(--surface)); }
-.ev.chg-removed:not(.chg-item) { opacity: 0.6; }
-.ev.chg-removed:not(.chg-item) .matchup, .ev.chg-removed:not(.chg-item) .ev-time b { text-decoration: line-through; }
 .ev-changes { display: grid; gap: 3px; margin-top: 6px; font-size: 13px; }
 .chg { line-height: 1.4; }
 .chg s { color: var(--muted); }

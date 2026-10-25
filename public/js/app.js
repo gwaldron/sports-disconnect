@@ -37,7 +37,6 @@ const state = {
   changes: [], // recent change log, newest first
   changesByMatch: new Map(), // matchId -> changes, oldest first
   eventsByMatch: new Map(),
-  removed: [], // last-known versions of games that dropped off the schedule
   // Assignr (umpires): only for people signed in with their own Assignr account.
   assignr: null, // { enabled, connected, account, games, error } from /api/assignr
   umps: new Map(), // event id -> matched Assignr game
@@ -160,16 +159,11 @@ function applyData(data) {
 
   state.changes = data.changes || [];
   state.changesByMatch = new Map();
-  const gone = new Map();
   for (const c of [...state.changes].reverse()) {
     if (!state.changesByMatch.has(c.matchId)) state.changesByMatch.set(c.matchId, []);
     state.changesByMatch.get(c.matchId).push(c);
-    if (c.event?.id) {
-      c.event._hay = F.haystack(c.event);
-      gone.set(c.matchId, c.event);
-    }
+    if (c.event?.id) c.event._hay = F.haystack(c.event); // removed games, still listed under Changes
   }
-  state.removed = [...gone.values()];
 
   state.divisions = new Map();
   state.teams = new Map();
@@ -299,13 +293,8 @@ function viewWindow() {
 function visibleEvents() {
   const [from, to] = viewWindow();
   const inView = (ev) => (!from || ev.date >= from) && (!to || ev.date <= to) && F.matchesNonDate(ev, state.filters);
-  let out = state.events.filter(inView);
-  if (state.view === 'list') {
-    // Recently removed games stay in their old slot, struck through, so you notice.
-    const gone = state.removed.filter((ev) => inView(ev) && recentChange(ev)?.kind === 'removed');
-    if (gone.length) out = out.concat(gone).sort((a, b) => a.start.localeCompare(b.start));
-    if (state.filters.range === 'past') out.reverse();
-  }
+  const out = state.events.filter(inView);
+  if (state.view === 'list' && state.filters.range === 'past') out.reverse();
   return out;
 }
 
@@ -621,10 +610,9 @@ function renderMain() {
     return;
   }
 
-  const live = events.filter((e) => !e.removed);
-  const games = live.filter((e) => e.type === 'game').length;
-  $('#result-count').textContent = `${live.length} event${live.length === 1 ? '' : 's'}`
-    + (live.length ? ` · ${games} game${games === 1 ? '' : 's'}` : '');
+  const games = events.filter((e) => e.type === 'game').length;
+  $('#result-count').textContent = `${events.length} event${events.length === 1 ? '' : 's'}`
+    + (events.length ? ` · ${games} game${games === 1 ? '' : 's'}` : '');
 
   if (state.view === 'list') content.innerHTML = events.length ? renderAgenda(events) : emptyState();
   else if (state.view === 'day') content.innerHTML = renderDay(events);
@@ -660,7 +648,7 @@ function renderAgenda(events) {
     const rel = relativeDay(date);
     return `<section class="day ${date === t ? 'is-today' : ''} ${date < t ? 'is-past' : ''}" data-date="${date}">
       <h3 class="day-head"><span>${dayLabel(date)}</span>
-        ${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${evs.filter((e) => !e.removed).length}</span>${assignrDayLink(date)}</h3>
+        ${rel ? `<span class="rel">${rel}</span>` : ''}<span class="n">${evs.length}</span>${assignrDayLink(date)}</h3>
       <div class="day-events">${evs.map(renderRow).join('')}</div>
     </section>`;
   }).join('');
@@ -689,14 +677,12 @@ function isNow(ev) {
 
 function renderRow(ev) {
   const d = state.divisions.get(ev.divisionId);
-  const rc = recentChange(ev);
   const time = ev.allDay ? '<b>All day</b>' : `<b>${fmtTime(startTime(ev))}</b><span>${fmtTime(endTime(ev))}</span>`;
-  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''} ${rc ? `chg-${rc.kind}` : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
+  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
     <div class="ev-time">${time}</div>
     <div class="ev-body">
       <div class="ev-title">
         <span class="badge">${ev.postseason ? 'Playoff' : TYPE_BADGE[ev.type]}</span>
-        ${rc ? changeBadge(rc.kind) : ''}
         ${ev.status ? `<span class="badge warn">${esc(ev.status)}</span>` : ''}
         ${isNow(ev) ? '<span class="badge live">Now</span>' : ''}
         <span class="matchup">${rowTitle(ev)}</span>
@@ -708,7 +694,6 @@ function renderRow(ev) {
       </div>
       ${ev.notes ? `<div class="ev-notes">${esc(ev.notes)}</div>` : ''}
       ${umpLine(ev)}
-      ${rc ? explainChanges(null, rc.diffs, ev) : ''}
     </div>
     ${ev.mapUrl ? `<a class="map" href="${esc(ev.mapUrl)}" target="_blank" rel="noopener" title="Map: ${esc(ev.location)}" aria-label="Map">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a5.5 5.5 0 0 0-5.5 5.5c0 4.1 5.5 10.5 5.5 10.5s5.5-6.4 5.5-10.5A5.5 5.5 0 0 0 10 2Zm0 7.75a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Z"/></svg></a>` : ''}

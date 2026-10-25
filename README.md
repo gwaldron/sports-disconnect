@@ -28,10 +28,11 @@ SportsConnect doesn't say when a game changes, so the app keeps its own record.
 Each time it re-checks the league site, it compares the result, game by game, with the
 last version it saw (match IDs stay the same when a game is rescheduled):
 
-- **New**, **Updated** and **Removed** badges appear on recently changed games (the default window is 3 days).
-- Updated games show inline before→after values, for example ~~3:30 PM–5:30 PM~~ → **9:00 AM–10:30 AM**.
-- Removed games stay in their old slot, struck through, so they don't just silently disappear.
-- The **Changes** view lists everything that changed, newest first, and respects your current filters. The tab shows a count of changes since your last visit.
+- The **Changes** view lists every recently changed game (the default window is 3 days), by game date, and
+  respects your current filters. Each game has a **New**, **Moved**, **Updated** or **Removed** badge, the
+  change in words with before→after values (for example ~~3:30 PM–5:30 PM~~ → **9:00 AM–10:30 AM**),
+  and an estimate of when it happened. The tab shows a count of changes since your last visit.
+- The List view stays clean. Day, Week and Month cards get a small dot on recently changed games.
 - Each game's detail pop-up has a **History** section.
 - In calendar exports, a game keeps the same ID when it's rescheduled. Subscribed calendars therefore update it in place instead of deleting it and adding a new one.
 
