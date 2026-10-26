@@ -71,6 +71,12 @@ the matching Assignr game:
 
 Practices and note-only changes are ignored, because they don't affect umpires.
 
+**Games only in Assignr:** published, upcoming Assignr games with no matching league game appear in the List,
+Day, Week and Month views at their date and time. They have a dashed warning card that says "In Assignr, but not
+on the league schedule", usually because the league cancelled or moved them. **Mark OK** (shared, like Mark done)
+removes the warning from known Assignr-only games, such as interleague games. The **Show games that are only in
+Assignr** setting in the sidebar's Assignr panel turns the feature off. Unpublished drafts are ignored.
+
 **Setup:** register an OAuth app with Assignr (app.assignr.com/developers; you may need to ask
 Assignr Support for API access). Use the redirect URI `https://<your-site>/assignr/callback`. Then set
 `ASSIGNR_CLIENT_ID` in `wrangler.jsonc` and store the secret with `npx wrangler secret put

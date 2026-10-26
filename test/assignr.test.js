@@ -34,6 +34,21 @@ test('picks the right game among simultaneous games by teams', () => {
   assert.equal(byEvent.get('1-2026-10-24').id, 501);
 });
 
+test('simultaneous games whose team names share words still match correctly', () => {
+  // Real case: two Juniors interleague games at 10:00 on the same field.
+  const events = [
+    ev(1, { start: '2026-11-07T10:00', teams: [{ name: 'Fairfax_Custis_Juniors' }, { name: 'ALL' }] }),
+    ev(2, { start: '2026-11-07T10:00', teams: [{ name: 'Fairfax_Mancl_Juniors' }, { name: 'DCLL-2' }] }),
+  ].map((e) => ({ ...e, date: '2026-11-07' }));
+  const games = [
+    ag(500, { date: '2026-11-07', start: '2026-11-07T10:00', home: 'Fairfax_Custis_Juniors', away: 'ALL' }),
+    ag(501, { date: '2026-11-07', start: '2026-11-07T10:00', home: 'Fairfax_Mancl_Juniors', away: 'DCLL-2' }),
+  ];
+  const { byEvent } = matchAssignr(events, games);
+  assert.equal(byEvent.get('1-2026-10-24').id, 500);
+  assert.equal(byEvent.get('2-2026-10-24').id, 501);
+});
+
 test('time alone is not enough, and ties are left unmatched', () => {
   assert.equal(matchAssignr([ev(1)], [ag(500, { venue: 'Elsewhere', subvenue: '', home: 'X', away: 'Y', ageGroup: '' })]).byEvent.size, 0);
   const twins = [ev(1, { teams: [] }), ev(2, { teams: [] })];
@@ -78,6 +93,13 @@ test('captures officials asking to work a game', () => {
   const many = normalizeGame({ id: 2, _embedded: { game_requests: [official('Sam', 'Patel'), official('Jo', 'Kim')] } }, 'America/New_York', A);
   assert.deepEqual(many.requests.map((r) => r.name), ['Sam Patel', 'Jo Kim']);
   assert.ok(!JSON.stringify(many).includes('x@example.com'));
+});
+
+test('keeps end time and treats drafts as unpublished', () => {
+  const g = normalizeGame({ id: 3, start_time: '2026-10-24T13:00:00Z', end_time: '2026-10-24T15:00:00Z', published: false }, 'America/New_York', A);
+  assert.equal(g.end, '2026-10-24T11:00');
+  assert.equal(g.published, false);
+  assert.equal(normalizeGame({ id: 4 }, 'America/New_York', A).published, true); // missing flag: assume published
 });
 
 test('localDateTime handles DST and bad input', () => {

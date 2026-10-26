@@ -26,10 +26,10 @@ function score(g, ev, maxMinutes) {
   const dt = Math.abs(minutes(g.start) - minutes(ev.start));
   if (dt > maxMinutes) return 0;
   let s = dt === 0 ? 3 : 1;
-  const venue = overlap(tokens(`${g.venue} ${g.subvenue}`), tokens(`${ev.location} ${ev.field}`));
-  s += venue >= 0.5 ? 3 : venue > 0 ? 1 : 0;
-  const teams = overlap(tokens(`${g.home} ${g.away}`), tokens(ev.teams.map((t) => t.name).join(' ')));
-  s += teams >= 0.5 ? 4 : teams > 0 ? 2 : 0;
+  // Proportional, not pass/fail: team names often share words ("Fairfax_Custis_Juniors" vs
+  // "Fairfax_Mancl_Juniors"), and a full match must outscore a half match at the same time and field.
+  s += 3 * overlap(tokens(`${g.venue} ${g.subvenue}`), tokens(`${ev.location} ${ev.field}`));
+  s += 4 * overlap(tokens(`${g.home} ${g.away}`), tokens(ev.teams.map((t) => t.name).join(' ')));
   if (g.ageGroup && overlap(tokens(g.ageGroup), tokens(ev.division)) > 0) s += 1;
   return s;
 }

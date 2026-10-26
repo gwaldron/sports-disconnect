@@ -7,7 +7,7 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const LS = {
   starred: 'sd.starred', lastHash: 'sd.lastHash', showPast: 'sd.showPast',
   changesSeen: 'sd.changesSeen', highlightDays: 'sd.highlightDays', sidebarCollapsed: 'sd.sidebarCollapsed',
-  todoOnly: 'sd.todoOnly',
+  todoOnly: 'sd.todoOnly', showAssignrOnly: 'sd.showAssignrOnly',
   dayGroup: 'sd.dayGroup',
 };
 const RANGE_LABELS = {
@@ -44,6 +44,8 @@ const state = {
   assignrNotice: '',
   doneByKey: new Map(), // change key -> { at, by }: "Mark done", shared per Assignr site
   todoOnly: load(LS.todoOnly, false),
+  assignrOnly: [], // published Assignr games with no league game, shaped like events
+  showAssignrOnly: load(LS.showAssignrOnly, true),
   highlightDays: load(LS.highlightDays, 3),
   seenMark: '', // changes newer than this were unseen when the Changes view opened
   inChanges: false,
@@ -192,6 +194,10 @@ function matchUmpires() {
   const { byEvent, unmatched } = matchAssignr(state.events, games);
   state.umps = byEvent;
   state.assignrUnmatched = unmatched;
+  // Published, upcoming Assignr games with no league counterpart are shown in the schedule, flagged.
+  const t = today();
+  state.assignrOnly = unmatched.filter((g) => g.published !== false && g.start && g.date >= t).map(assignrOnlyEvent);
+  for (const ev of state.assignrOnly) state.umps.set(ev.id, ev.assignr);
   state.doneByKey = new Map((state.assignr?.done || []).map((d) => [d.key, d]));
 }
 
@@ -207,16 +213,62 @@ function renderAssignr() {
       <a class="btn block" href="/assignr/login">Connect Assignr</a>`;
     return;
   }
-  const withUmps = [...state.umps.values()].filter((g) => g.officials.length).length;
-  const unmatched = state.assignrUnmatched.filter((g) => g.date >= today()).length;
+  const withUmps = [...state.umps].filter(([id, g]) => !id.startsWith('assignr-') && g.officials.length).length;
+  const onlyIn = state.assignrOnly.length;
   $('#assignr-body').innerHTML = `${note}
     <p class="connected">Connected as <b>${esc(a.account)}</b></p>
-    <p class="hint">${withUmps} game${withUmps === 1 ? '' : 's'} with umpires${unmatched
-      ? ` · <button class="linkish" data-action="assignr-unmatched">${unmatched} not matched</button>` : ''}</p>
+    <p class="hint">${withUmps} game${withUmps === 1 ? '' : 's'} with umpires${onlyIn
+      ? ` · <button class="linkish" data-action="assignr-unmatched">${onlyIn} only in Assignr</button>` : ''}</p>
+    <label class="setting"><input type="checkbox" id="show-assignr-only" ${state.showAssignrOnly ? 'checked' : ''}>
+      Show games that are only in Assignr</label>
     <div class="row">
       <a class="btn small" href="${esc(a.assignrUrl)}" target="_blank" rel="noopener">Open Assignr ↗</a>
       <button class="btn small ghost" data-action="assignr-disconnect">Disconnect</button>
     </div>`;
+}
+
+/** The league division for an Assignr age group ("AA", "Majors"), when exactly one fits. */
+function guessDivision(g) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const want = norm(g.ageGroup);
+  if (!want) return null;
+  const hits = [...state.divisions.values()].filter((d) => d.firstDate <= g.date && g.date <= d.lastDate
+    && (norm(ageGroup(d)) === want || norm(d.label) === want));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** An Assignr game with no league counterpart, shaped like a schedule event so every view can show it. */
+function assignrOnlyEvent(g) {
+  const d = guessDivision(g);
+  // No end time from Assignr: assume two hours, capped at midnight.
+  const endMin = Math.min(23 * 60 + 59, Number(g.start.slice(11, 13)) * 60 + Number(g.start.slice(14, 16)) + 120);
+  const end = g.end || `${g.start.slice(0, 11)}${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+  const teams = [g.home, g.away].filter(Boolean).map((name) => ({ id: '', name }));
+  const ev = {
+    id: `assignr-${g.id}`, assignrOnly: true, assignr: g, doneKey: `assignr-only.${g.id}`,
+    type: 'game', postseason: false, title: teams.map((t) => t.name).join(' vs ') || 'Assignr game',
+    date: g.date, start: g.start, end, allDay: false,
+    home: teams[0] || null, away: teams[1] || null, teams,
+    divisionId: d?.id || '', division: d?.label || g.ageGroup || '', sport: d?.sport || '',
+    location: g.venue || 'TBD', field: g.subvenue || '', locationId: `assignr-${g.venue}`,
+    mapUrl: '', notes: '', status: '', eventName: '',
+  };
+  ev._hay = F.haystack(ev);
+  return ev;
+}
+
+const assignrOnlyClass = (ev) => (ev.assignrOnly ? `assignr-only ${state.doneByKey.has(ev.doneKey) ? 'ok' : ''}` : '');
+
+/** The warning (or "OK'd") line for an Assignr-only game, with Open in Assignr and Mark OK. */
+function assignrOnlyNote(ev) {
+  if (!ev.assignrOnly) return '';
+  const ok = state.doneByKey.get(ev.doneKey);
+  const msg = ok ? `Only in Assignr · OK'd${ok.by ? ` by ${ok.by.split(' ')[0]}` : ''}` : '⚠ In Assignr, but not on the league schedule';
+  return `<div class="assignr-only-msg"><span>${esc(msg)}</span>
+    <a href="${esc(ev.assignr.url)}" target="_blank" rel="noopener">Open in Assignr ↗</a>
+    <button class="done-toggle ${ok ? 'on' : ''}" data-action="mark-done" data-key="${esc(ev.doneKey)}" data-done="${ok ? 0 : 1}"
+      aria-pressed="${!!ok}" title="${ok ? 'Click to show the warning again' : 'A known Assignr-only game (an interleague game, say): hide the warning for everyone on your Assignr site'}">
+      ${ok ? '✓ OK' : 'Mark OK'}</button></div>`;
 }
 
 /** "✋2" on open positions when officials have asked to work the game. */
@@ -264,15 +316,16 @@ function umpiresHtml(ev) {
 }
 
 function unmatchedDialog() {
-  const games = state.assignrUnmatched.filter((g) => g.date >= today());
-  return `<div class="dialog-top"><h2>Not matched</h2>
+  return `<div class="dialog-top"><h2>Only in Assignr</h2>
       <button class="btn icon ghost" data-action="close-dialog" aria-label="Close">×</button></div>
-    <p class="muted">These Assignr games didn't line up with a game on the league schedule (by date, time, field and teams).</p>
-    <ul class="unmatched">${games.map((g) => `<li>
-      <b>${fmtDayShort.format(parseDate(g.date))} · ${fmtTime(g.start.slice(11, 16))}</b>
-      ${esc([g.home, g.away].filter(Boolean).join(' vs ') || 'Game')}
-      <span class="muted">${esc([g.venue, g.subvenue].filter(Boolean).join(' · '))}</span>
-      <a href="${esc(g.url)}" target="_blank" rel="noopener">Assignr ↗</a></li>`).join('')}</ul>`;
+    <p class="muted">Published, upcoming Assignr games with no matching game on the league schedule (by date, time,
+      field and teams). If the league cancelled or moved one, update Assignr.</p>
+    <ul class="unmatched">${state.assignrOnly.map((ev) => `<li>
+      <b>${fmtDayShort.format(parseDate(ev.date))} · ${fmtTime(startTime(ev))}</b>
+      ${esc(ev.title)}
+      <span class="muted">${esc([ev.location, ev.field].filter(Boolean).join(' · '))}</span>
+      ${state.doneByKey.has(ev.doneKey) ? '<span class="muted">✓ OK</span>' : ''}
+      <a href="${esc(ev.assignr.url)}" target="_blank" rel="noopener">Assignr ↗</a></li>`).join('')}</ul>`;
 }
 
 /** The [from, to] window the current view displays. */
@@ -293,13 +346,18 @@ function viewWindow() {
 function visibleEvents() {
   const [from, to] = viewWindow();
   const inView = (ev) => (!from || ev.date >= from) && (!to || ev.date <= to) && F.matchesNonDate(ev, state.filters);
-  const out = state.events.filter(inView);
+  let out = state.events.filter(inView);
+  if (state.assignr?.connected && state.showAssignrOnly) {
+    const extra = state.assignrOnly.filter(inView);
+    if (extra.length) out = out.concat(extra).sort((a, b) => a.start.localeCompare(b.start));
+  }
   if (state.view === 'list' && state.filters.range === 'past') out.reverse();
   return out;
 }
 
 function findEvent(id) {
-  return state.events.find((x) => x.id === id) || state.changes.find((c) => c.event?.id === id)?.event;
+  return state.events.find((x) => x.id === id) || state.assignrOnly.find((x) => x.id === id)
+    || state.changes.find((c) => c.event?.id === id)?.event;
 }
 
 // ---------- change tracking ----------
@@ -678,7 +736,7 @@ function isNow(ev) {
 function renderRow(ev) {
   const d = state.divisions.get(ev.divisionId);
   const time = ev.allDay ? '<b>All day</b>' : `<b>${fmtTime(startTime(ev))}</b><span>${fmtTime(endTime(ev))}</span>`;
-  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
+  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
     <div class="ev-time">${time}</div>
     <div class="ev-body">
       <div class="ev-title">
@@ -694,6 +752,7 @@ function renderRow(ev) {
       </div>
       ${ev.notes ? `<div class="ev-notes">${esc(ev.notes)}</div>` : ''}
       ${umpLine(ev)}
+      ${assignrOnlyNote(ev)}
     </div>
     ${ev.mapUrl ? `<a class="map" href="${esc(ev.mapUrl)}" target="_blank" rel="noopener" title="Map: ${esc(ev.location)}" aria-label="Map">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a5.5 5.5 0 0 0-5.5 5.5c0 4.1 5.5 10.5 5.5 10.5s5.5-6.4 5.5-10.5A5.5 5.5 0 0 0 10 2Zm0 7.75a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Z"/></svg></a>` : ''}
@@ -875,7 +934,7 @@ function renderDay(events) {
       </h3>
       <div class="dcol-events">${col.events.map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
+        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
           <span class="wtop">
             <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
             ${byLocation && d ? `<span class="age" title="${esc(d.label)} (${esc(d.sport)})">${esc(ageGroup(d))}</span>` : ''}
@@ -901,7 +960,7 @@ function renderWeek(events) {
         ${evs.length ? `<span class="n">${evs.length}</span>` : ''}${assignrDayLink(date)}</h3>
       <div class="wday-events">${evs.map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
+        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
           <span class="wtop">
             <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
             ${d ? `<span class="age" title="${esc(d.label)} (${esc(d.sport)})">${esc(ageGroup(d))}</span>` : ''}
@@ -936,7 +995,7 @@ function renderMonth(events) {
       <div class="mnum"><span>${parseDate(date).getDate()}</span>${evs.length ? `<span class="n" title="${games} games, ${evs.length - games} other">${evs.length}</span>` : ''}</div>
       ${evs.slice(0, MAX).map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<div class="mev type-${ev.type} ${recentChange(ev) ? 'changed' : ''}" style="--h:${d?.hue ?? 0}">
+        return `<div class="mev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}">
           <span class="t">${ev.allDay ? '' : fmtTime(startTime(ev), true)}</span> ${esc(compactTitle(ev))}</div>`;
       }).join('')}
       ${evs.length > MAX ? `<div class="more">+${evs.length - MAX} more</div>` : ''}
@@ -1031,7 +1090,7 @@ function eventDetail(ev) {
   };
   const ics = `/calendar.ics?id=${encodeURIComponent(ev.id)}&download=1&name=${encodeURIComponent(ev.title)}`;
   const rc = recentChange(ev);
-  return `<div class="detail" style="--h:${d?.hue ?? 0}">
+  return `<div class="detail" data-id="${esc(ev.id)}" style="--h:${d?.hue ?? 0}">
     <div class="dialog-top">
       <span></span>
       <button class="btn icon ghost" data-action="close-dialog" aria-label="Close">×</button>
@@ -1042,6 +1101,10 @@ function eventDetail(ev) {
       ${ev.status ? `<span class="badge warn">${esc(ev.status)}</span>` : ''}
     </div>
     <h2>${esc(ev.title)}</h2>
+    ${ev.assignrOnly ? `<div class="assignr-only-box">${assignrOnlyNote(ev)}
+      <p class="muted">This published Assignr game has no matching game on the league schedule. If the league cancelled
+        or moved it, update Assignr. If it's meant to be Assignr-only (an interleague game, say), Mark OK hides the
+        warning for everyone on your Assignr site.</p></div>` : ''}
     <dl>
       <dt>When</dt><dd>${fmtDayLong.format(parseDate(ev.date))}<br>${when}</dd>
       <dt>Where</dt><dd>${esc(ev.location)}${ev.field ? `<br><span class="muted">${esc(ev.field)}</span>` : ''}
@@ -1054,8 +1117,8 @@ function eventDetail(ev) {
     </dl>
     ${ev.type === 'game' ? teamBlock(ev.home, 'Home') + teamBlock(ev.away, 'Away') : ev.teams.map((t) => teamBlock(t, 'Team')).join('')}
     ${umpiresHtml(ev)}
-    ${historyHtml(ev)}
-    ${ev.removed ? '' : `<div class="row actions">
+    ${ev.assignrOnly ? '' : historyHtml(ev)}
+    ${ev.removed || ev.assignrOnly ? '' : `<div class="row actions">
       <a class="btn" href="${ics}">Add to calendar (.ics)</a>
       <a class="btn" href="${gcalLink(ev)}" target="_blank" rel="noopener">Google Calendar ↗</a>
     </div>`}
@@ -1253,6 +1316,8 @@ document.addEventListener('click', (e) => {
       if (done) state.doneByKey.set(key, { key, at: new Date().toISOString(), by: state.assignr?.account });
       else state.doneByKey.delete(key);
       render();
+      const open = el.closest('#dialog') && findEvent($('#dialog-body .detail')?.dataset.id);
+      if (open) openDialog(eventDetail(open));
       fetch('/api/assignr/done', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, done }),
@@ -1305,6 +1370,11 @@ document.addEventListener('change', (e) => {
   const { kind } = e.target.dataset;
   if (kind) update((f) => toggle(f[{ div: 'divs', team: 'teams', loc: 'locs' }[kind]], e.target.value));
   if (e.target.id === 'from' || e.target.id === 'to') update((f) => { f[e.target.id] = e.target.value; });
+  if (e.target.id === 'show-assignr-only') {
+    state.showAssignrOnly = e.target.checked;
+    save(LS.showAssignrOnly, state.showAssignrOnly);
+    render();
+  }
   if (e.target.id === 'todo-only') {
     state.todoOnly = e.target.checked;
     save(LS.todoOnly, state.todoOnly);
