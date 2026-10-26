@@ -54,9 +54,11 @@ to see who's umpiring each game.
   browser. Tokens are stored in D1 (`assignr_sessions`), keyed by a SHA-256 hash of a random,
   HttpOnly, Secure session cookie. Only names and positions are kept, never contact details.
   Disconnecting deletes the session and revokes the token.
-- **Matching.** Assignr games are matched to league games by date, start time (within 20 minutes),
-  venue, teams and age group (`public/js/assignr-match.js`). Games that don't line up are listed
-  under "not matched" in the sidebar instead of being guessed.
+- **Matching.** An Assignr game whose Game ID (`user_defined_id`, or `external_id`) equals the league's match ID is
+  linked exactly. Importing league games into Assignr with Match ID as the Game ID sets this up. Otherwise
+  games are matched by date, start time (within 20 minutes), venue, teams and age group
+  (`public/js/assignr-match.js`). Besides the time, the location or teams must actually agree, and only
+  league games, never practices, are considered. Anything that doesn't line up is flagged, not guessed.
 
 **Keeping Assignr in sync (assignors):** in the **Changes** view, every changed game shows whether
 Assignr has caught up (`public/js/assignr-sync.js`). It compares the change's old and new values with

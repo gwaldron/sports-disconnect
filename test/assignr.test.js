@@ -12,7 +12,7 @@ const cfg = { assignr: A, timeZone: 'America/New_York' };
 // --- matching ---
 
 const ev = (id, o = {}) => ({
-  id: `${id}-2026-10-24`, matchId: id, date: '2026-10-24', start: '2026-10-24T09:00', allDay: false,
+  id: `${id}-2026-10-24`, matchId: id, type: 'game', date: '2026-10-24', start: '2026-10-24T09:00', allDay: false,
   location: 'Providence ES', field: 'Field 2 (AA/AAA)', division: 'AA – Minors',
   teams: [{ name: 'Team Dennis' }, { name: 'Team Custis' }], ...o,
 });
@@ -49,10 +49,32 @@ test('simultaneous games whose team names share words still match correctly', ()
   assert.equal(byEvent.get('2-2026-10-24').id, 501);
 });
 
+test('same time + field number + age group at a different park is not a match', () => {
+  // Real case: a TBD-vs-TBD AAA game at Wakefield Park Field 1 had matched an AAA softball
+  // game across town at the same time, and showed its umpires there.
+  const softball = ev(1, { location: 'West Springfield High School', field: 'Field 1', division: 'AAA – Player Pitch',
+    teams: [{ name: 'Brixius-AAA Softball' }, { name: 'Grace-AAA Softball' }] });
+  const { byEvent, unmatched } = matchAssignr([softball], [ag(500, { venue: 'Wakefield Park', subvenue: 'Field 1', home: 'TBD', away: 'TBD', ageGroup: 'AAA' })]);
+  assert.equal(byEvent.size, 0);
+  assert.equal(unmatched.length, 1);
+});
+
+test('practices never take an Assignr game', () => {
+  const practice = ev(1, { type: 'practice', teams: [{ name: 'Team Dennis' }] });
+  assert.equal(matchAssignr([practice], [ag(500)]).byEvent.size, 0);
+});
+
 test('time alone is not enough, and ties are left unmatched', () => {
   assert.equal(matchAssignr([ev(1)], [ag(500, { venue: 'Elsewhere', subvenue: '', home: 'X', away: 'Y', ageGroup: '' })]).byEvent.size, 0);
   const twins = [ev(1, { teams: [] }), ev(2, { teams: [] })];
   assert.equal(matchAssignr(twins, [ag(500, { home: '', away: '' })]).byEvent.size, 0);
+});
+
+test('Assignr Game ID equal to the league match ID links exactly, even when everything else differs', () => {
+  const g = ag(500, { userDefinedId: '1', start: '2026-10-24T15:00', venue: 'Elsewhere', subvenue: '', home: 'X', away: 'Y' });
+  const { byEvent } = matchAssignr([ev(1), ev(2)], [g]);
+  assert.equal(byEvent.get('1-2026-10-24').id, 500);
+  assert.equal(byEvent.size, 1);
 });
 
 test('external id links exactly; far-off times and cancelled games never match', () => {

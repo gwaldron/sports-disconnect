@@ -21,15 +21,25 @@ export function overlap(a, b) {
 
 const minutes = (s) => Number(s.slice(11, 13)) * 60 + Number(s.slice(14, 16));
 
+/** True when the Assignr game carries the league's match ID (Assignr "Game ID" or external ID). */
+export function linkedById(g, ev) {
+  const id = String(ev.matchId);
+  return [g.userDefinedId, g.externalId].some((x) => x != null && String(x).trim() === id);
+}
+
 function score(g, ev, maxMinutes) {
-  if (g.externalId != null && String(g.externalId) === String(ev.matchId)) return 100; // linked at the source
+  if (linkedById(g, ev)) return 100; // linked at the source: trust it over everything else
   const dt = Math.abs(minutes(g.start) - minutes(ev.start));
   if (dt > maxMinutes) return 0;
+  const teams = overlap(tokens(`${g.home} ${g.away}`), tokens(ev.teams.map((t) => t.name).join(' ')));
+  // The same start time isn't enough, even with a shared field number ("Field 1") or age group
+  // ("AAA"): it must be the same place or clearly the same teams.
+  if (!overlap(tokens(g.venue), tokens(ev.location)) && teams < 0.5) return 0;
   let s = dt === 0 ? 3 : 1;
   // Proportional, not pass/fail: team names often share words ("Fairfax_Custis_Juniors" vs
   // "Fairfax_Mancl_Juniors"), and a full match must outscore a half match at the same time and field.
   s += 3 * overlap(tokens(`${g.venue} ${g.subvenue}`), tokens(`${ev.location} ${ev.field}`));
-  s += 4 * overlap(tokens(`${g.home} ${g.away}`), tokens(ev.teams.map((t) => t.name).join(' ')));
+  s += 4 * teams;
   if (g.ageGroup && overlap(tokens(g.ageGroup), tokens(ev.division)) > 0) s += 1;
   return s;
 }
@@ -43,7 +53,7 @@ const MIN_SCORE = 4; // the time alone (3) is never enough: several games share 
 export function matchAssignr(events, games, { maxMinutes = 20 } = {}) {
   const byDate = new Map();
   for (const ev of events) {
-    if (ev.allDay || ev.removed) continue;
+    if (ev.allDay || ev.removed || ev.type !== 'game') continue; // practices don't get umpires
     if (!byDate.has(ev.date)) byDate.set(ev.date, []);
     byDate.get(ev.date).push(ev);
   }

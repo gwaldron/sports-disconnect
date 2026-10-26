@@ -348,7 +348,11 @@ function visibleEvents() {
   const inView = (ev) => (!from || ev.date >= from) && (!to || ev.date <= to) && F.matchesNonDate(ev, state.filters);
   let out = state.events.filter(inView);
   if (state.assignr?.connected && state.showAssignrOnly) {
-    const extra = state.assignrOnly.filter(inView);
+    // These are league-wide problems with no league teams, so team, division and
+    // location filters don't hide them; dates, Games/Practices and search still apply.
+    const loose = { ...state.filters, divs: [], teams: [], locs: [] };
+    const extra = state.assignrOnly.filter((ev) => (!from || ev.date >= from) && (!to || ev.date <= to)
+      && F.matchesNonDate(ev, loose));
     if (extra.length) out = out.concat(extra).sort((a, b) => a.start.localeCompare(b.start));
   }
   if (state.view === 'list' && state.filters.range === 'past') out.reverse();
