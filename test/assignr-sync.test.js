@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { syncStatus, previousVersion } from '../public/js/assignr-sync.js';
+import { syncStatus, previousVersion, pairMismatches } from '../public/js/assignr-sync.js';
 import { matchAssignr } from '../public/js/assignr-match.js';
 
 // A league game after its changes, and Assignr games in various states.
@@ -68,4 +68,16 @@ test('previousVersion puts the old values back', () => {
   assert.equal(before.date, '2026-10-21');
   assert.equal(before.field, 'Field 2');
   assert.deepEqual(before.teams.map((t) => t.name), ['Team Dennis', 'Team Frank']);
+});
+
+test('pairMismatches: start time and field must line up', () => {
+  // Real case, linked by Game ID: league 12:30, Assignr 11:30, same field.
+  const league = ev({ start: '2026-10-31T12:30', date: '2026-10-31', field: 'Field 2 (AA/AAA)' });
+  const assignr = ag(1, { start: '2026-10-31T11:30', date: '2026-10-31', venue: 'Providence ES', subvenue: 'Field 2 (AA/AAA)', home: 'GW1', away: 'GW2' });
+  assert.deepEqual(pairMismatches(league, assignr), ['when']);
+  assert.deepEqual(pairMismatches(ev(), ag(1)), []); // same time, "Providence Elementary" ~ "Providence ES"
+  assert.deepEqual(pairMismatches(ev(), ag(1, { subvenue: 'Field 2' })), ['where']); // field 2 vs 3
+  assert.deepEqual(pairMismatches(ev(), ag(1, { venue: 'Wakefield Park', subvenue: '' })), ['where']);
+  assert.deepEqual(pairMismatches(ev(), ag(1, { subvenue: '' })), []); // no field info in Assignr: fine
+  assert.deepEqual(pairMismatches(ev(), ag(1, { start: '2026-10-29T18:30', venue: 'Wakefield Park' })), ['when', 'where']);
 });

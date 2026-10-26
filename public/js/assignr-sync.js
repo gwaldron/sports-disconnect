@@ -68,3 +68,17 @@ export function syncStatus({ ev, kind, diffs }, { games, byEvent }) {
   const old = matchAssignr([before], live).byEvent.get(before.id);
   return old ? { state: 'stale', game: old, fields: relevant.map((d) => d.field) } : { state: 'unknown' };
 }
+
+/**
+ * Where a league game and the Assignr game it's paired with disagree on when or
+ * where it is: ['when'], ['where'], both, or [] when they line up. Team names
+ * aren't compared, since playoff placeholders legitimately differ ("GW1" vs "G5 Win").
+ */
+export function pairMismatches(ev, g) {
+  const out = [];
+  if (g.start && !ev.allDay && g.start !== ev.start) out.push('when');
+  const samePlace = overlap(tokens(g.venue), tokens(ev.location)) > 0;
+  const sameField = !g.subvenue || !ev.field || overlap(tokens(g.subvenue), tokens(ev.field)) > 0;
+  if ((g.venue && ev.location && !samePlace) || !sameField) out.push('where');
+  return out;
+}

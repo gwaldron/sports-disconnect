@@ -383,21 +383,28 @@ details > summary::-webkit-details-marker { display: none; }
 .done-toggle.on { background: var(--chg-new); border-color: var(--chg-new); color: #fff; }
 .chg-item.resolved { opacity: 0.62; }
 
-/* Assignr-only games: published in Assignr, missing from the league schedule */
-.ev.assignr-only { border-style: dashed; border-color: var(--chg-upd); border-left-style: solid;
+/* Assignr problems: games only in Assignr, or with a different time/field there */
+.ev.assignr-problem { border-style: dashed; border-color: var(--chg-upd); border-left-style: solid;
   background: color-mix(in oklch, var(--chg-upd) 6%, var(--surface)); }
-.ev.assignr-only.ok { border-color: var(--border-strong); background: var(--surface); }
-.assignr-only-msg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px;
+.ev.assignr-problem.ok { border-color: var(--border-strong); background: var(--surface); }
+.problem-msg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px;
   font-size: 12.5px; font-weight: 650; color: var(--chg-upd); }
-.assignr-only.ok .assignr-only-msg, .assignr-only-box .assignr-only-msg:has(.on) { color: var(--muted); font-weight: 500; }
-.assignr-only-msg a { font-weight: 500; }
-.assignr-only-box { margin: -4px 0 14px; padding: 10px 12px; border: 1px dashed var(--chg-upd); border-radius: 10px; }
-.assignr-only-box .assignr-only-msg { margin-top: 0; }
-.assignr-only-box p { margin: 6px 0 0; font-size: 13px; }
-.wev.assignr-only:not(.ok), .mev.assignr-only:not(.ok) { outline: 1.5px dashed var(--chg-upd); outline-offset: -1.5px; }
-.wev.assignr-only:not(.ok) .title::before, .mev.assignr-only:not(.ok)::before { content: "⚠ "; color: var(--chg-upd); }
-.wev .not-league { margin-top: 3px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
+.assignr-problem.ok .problem-msg, .problem-box .problem-msg:has(.on) { color: var(--muted); font-weight: 500; }
+.problem-msg a { font-weight: 500; }
+.problem-box { margin: -4px 0 14px; padding: 10px 12px; border: 1px dashed var(--chg-upd); border-radius: 10px; }
+.problem-box .problem-msg { margin-top: 0; }
+.problem-box p { margin: 6px 0 0; font-size: 13px; }
+.problem-box .vs { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 13.5px; }
+.problem-box .vs th, .problem-box .vs td { padding: 4px 8px 4px 0; text-align: left; vertical-align: top; }
+.problem-box .vs tr:first-child th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.problem-box .vs tr > th { color: var(--muted); font-weight: 500; width: 54px; }
+.problem-box .vs tr.diff td { color: var(--chg-del); font-weight: 650; }
+.wev.assignr-problem:not(.ok), .mev.assignr-problem:not(.ok) { outline: 1.5px dashed var(--chg-upd); outline-offset: -1.5px; }
+.wev.assignr-problem:not(.ok) .title::before, .mev.assignr-problem:not(.ok)::before { content: "⚠ "; color: var(--chg-upd); }
+.wev .problem-tag { margin-top: 3px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--chg-del); }
+.unmatched li.clickable { cursor: pointer; }
+.unmatched .warn-text { color: var(--chg-upd); font-weight: 600; }
 .assignr .setting { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; font-size: 13px; color: var(--text-2); cursor: pointer; }
 
 /* Assignr: umpires (only for signed-in Assignr users) */

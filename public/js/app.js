@@ -1,7 +1,7 @@
 import * as F from './filter.js';
 import { matchAssignr } from './assignr-match.js';
 import { assignrDayUrl } from './assignr-links.js';
-import { syncStatus } from './assignr-sync.js';
+import { syncStatus, pairMismatches } from './assignr-sync.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const LS = {
@@ -45,6 +45,7 @@ const state = {
   doneByKey: new Map(), // change key -> { at, by }: "Mark done", shared per Assignr site
   todoOnly: load(LS.todoOnly, false),
   assignrOnly: [], // published Assignr games with no league game, shaped like events
+  mismatches: new Map(), // event id -> { fields, g, key }: paired games with a different time or field
   showAssignrOnly: load(LS.showAssignrOnly, true),
   highlightDays: load(LS.highlightDays, 3),
   seenMark: '', // changes newer than this were unseen when the Changes view opened
@@ -198,6 +199,16 @@ function matchUmpires() {
   const t = today();
   state.assignrOnly = unmatched.filter((g) => g.published !== false && g.start && g.date >= t).map(assignrOnlyEvent);
   for (const ev of state.assignrOnly) state.umps.set(ev.id, ev.assignr);
+  // Paired games must agree on start time and field; anything else is flagged.
+  state.mismatches = new Map();
+  for (const ev of state.events) {
+    const g = byEvent.get(ev.id);
+    if (!g || g.published === false || ev.date < t) continue;
+    const fields = pairMismatches(ev, g);
+    // The key covers both sides, so a "Mark OK" lapses if either one changes again.
+    const sig = shortHash([ev.start, ev.location, ev.field, g.start, g.venue, g.subvenue].join('|'));
+    if (fields.length) state.mismatches.set(ev.id, { fields, g, key: `mismatch.${g.id}.${sig}` });
+  }
   state.doneByKey = new Map((state.assignr?.done || []).map((d) => [d.key, d]));
 }
 
@@ -215,12 +226,14 @@ function renderAssignr() {
   }
   const withUmps = [...state.umps].filter(([id, g]) => !id.startsWith('assignr-') && g.officials.length).length;
   const onlyIn = state.assignrOnly.length;
+  const differs = state.mismatches.size;
   $('#assignr-body').innerHTML = `${note}
     <p class="connected">Connected as <b>${esc(a.account)}</b></p>
     <p class="hint">${withUmps} game${withUmps === 1 ? '' : 's'} with umpires${onlyIn
-      ? ` · <button class="linkish" data-action="assignr-unmatched">${onlyIn} only in Assignr</button>` : ''}</p>
+      ? ` · <button class="linkish" data-action="assignr-unmatched">${onlyIn} only in Assignr</button>` : ''}${differs
+      ? ` · <button class="linkish" data-action="assignr-differs">${differs} differ${differs === 1 ? 's' : ''} from Assignr</button>` : ''}</p>
     <label class="setting"><input type="checkbox" id="show-assignr-only" ${state.showAssignrOnly ? 'checked' : ''}>
-      Show games that are only in Assignr</label>
+      Flag Assignr problems on the schedule</label>
     <div class="row">
       <a class="btn small" href="${esc(a.assignrUrl)}" target="_blank" rel="noopener">Open Assignr ↗</a>
       <button class="btn small ghost" data-action="assignr-disconnect">Disconnect</button>
@@ -257,18 +270,97 @@ function assignrOnlyEvent(g) {
   return ev;
 }
 
-const assignrOnlyClass = (ev) => (ev.assignrOnly ? `assignr-only ${state.doneByKey.has(ev.doneKey) ? 'ok' : ''}` : '');
+function shortHash(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
 
-/** The warning (or "OK'd") line for an Assignr-only game, with Open in Assignr and Mark OK. */
-function assignrOnlyNote(ev) {
-  if (!ev.assignrOnly) return '';
-  const ok = state.doneByKey.get(ev.doneKey);
-  const msg = ok ? `Only in Assignr · OK'd${ok.by ? ` by ${ok.by.split(' ')[0]}` : ''}` : '⚠ In Assignr, but not on the league schedule';
-  return `<div class="assignr-only-msg"><span>${esc(msg)}</span>
-    <a href="${esc(ev.assignr.url)}" target="_blank" rel="noopener">Open in Assignr ↗</a>
-    <button class="done-toggle ${ok ? 'on' : ''}" data-action="mark-done" data-key="${esc(ev.doneKey)}" data-done="${ok ? 0 : 1}"
-      aria-pressed="${!!ok}" title="${ok ? 'Click to show the warning again' : 'A known Assignr-only game (an interleague game, say): hide the warning for everyone on your Assignr site'}">
-      ${ok ? '✓ OK' : 'Mark OK'}</button></div>`;
+/** This game's Assignr problem, if flagging is on: only in Assignr, or a different time/field. */
+function problemOf(ev) {
+  if (!state.assignr?.connected || !state.showAssignrOnly) return null;
+  if (ev.assignrOnly) return { kind: 'only', key: ev.doneKey, g: ev.assignr };
+  const m = state.mismatches.get(ev.id);
+  return m ? { kind: 'differs', key: m.key, g: m.g, fields: m.fields } : null;
+}
+
+function problemClass(ev) {
+  const p = problemOf(ev);
+  return p ? `assignr-problem ${state.doneByKey.has(p.key) ? 'ok' : ''}` : '';
+}
+
+/** "11:30 AM", or "Sat, Oct 31 · 11:30 AM" when the date differs too. */
+function assignrWhen(ev, g, short = false) {
+  const time = fmtTime(g.start.slice(11, 16), short);
+  return g.date === ev.date ? time : `${fmtDayShort.format(parseDate(g.date))} · ${time}`;
+}
+const assignrWhere = (g) => [g.venue, g.subvenue].filter(Boolean).join(' · ');
+
+function differsText(ev, p, short = false) {
+  return [
+    p.fields.includes('when') && `Assignr has ${assignrWhen(ev, p.g, short)}`,
+    p.fields.includes('where') && (short ? 'Assignr has a different field' : `Assignr has ${assignrWhere(p.g) || 'a different field'}`),
+  ].filter(Boolean).join(short ? ' · ' : '; ');
+}
+
+/** The warning (or "OK'd") line for a game with an Assignr problem, with Open in Assignr and Mark OK. */
+function problemNote(ev) {
+  const p = problemOf(ev);
+  if (!p) return '';
+  const ok = state.doneByKey.get(p.key);
+  const by = ok?.by ? ` by ${ok.by.split(' ')[0]}` : '';
+  const msg = ok ? `${p.kind === 'only' ? 'Only in Assignr' : 'Differs from Assignr'} · OK'd${by}`
+    : p.kind === 'only' ? '⚠ In Assignr, but not on the league schedule'
+    : `⚠ Doesn't match Assignr: ${differsText(ev, p)}`;
+  const tip = ok ? 'Click to show the warning again'
+    : p.kind === 'only' ? 'A known Assignr-only game (an interleague game, say): hide the warning for everyone on your Assignr site'
+    : 'An intentional difference: hide the warning for everyone on your Assignr site (it comes back if either side changes)';
+  return `<div class="problem-msg"><span>${esc(msg)}</span>
+    <a href="${esc(p.g.url)}" target="_blank" rel="noopener">Open in Assignr ↗</a>
+    <button class="done-toggle ${ok ? 'on' : ''}" data-action="mark-done" data-key="${esc(p.key)}" data-done="${ok ? 0 : 1}"
+      aria-pressed="${!!ok}" title="${esc(tip)}">${ok ? '✓ OK' : 'Mark OK'}</button></div>`;
+}
+
+/** The red all-caps line at the bottom of Day/Week cards. */
+function problemTag(ev) {
+  const p = problemOf(ev);
+  if (!p || state.doneByKey.has(p.key)) return '';
+  return `<span class="problem-tag">${esc(p.kind === 'only' ? 'Not on league calendar' : differsText(ev, p, true))}</span>`;
+}
+
+/** The explanation at the top of a game's details. */
+function problemBox(ev) {
+  const p = problemOf(ev);
+  if (!p) return '';
+  if (p.kind === 'only') {
+    return `<div class="problem-box">${problemNote(ev)}
+      <p class="muted">This published Assignr game has no matching game on the league schedule. If the league cancelled
+        or moved it, update Assignr. If it's meant to be Assignr-only (an interleague game, say), Mark OK hides the
+        warning for everyone on your Assignr site.</p></div>`;
+  }
+  const g = p.g;
+  const row = (label, league, assignr, diff) =>
+    `<tr class="${diff ? 'diff' : ''}"><th>${label}</th><td>${esc(league)}</td><td>${esc(assignr)}</td></tr>`;
+  return `<div class="problem-box">${problemNote(ev)}
+    <table class="vs"><tr><th></th><th>League</th><th>Assignr</th></tr>
+      ${row('Start', `${fmtDayShort.format(parseDate(ev.date))} · ${fmtTime(startTime(ev))}`,
+        `${fmtDayShort.format(parseDate(g.date))} · ${fmtTime(g.start.slice(11, 16))}`, p.fields.includes('when'))}
+      ${row('Where', [ev.location, ev.field].filter(Boolean).join(' · '), assignrWhere(g) || '—', p.fields.includes('where'))}
+    </table>
+    <p class="muted">Start times and fields should match. Fix whichever side is wrong. If the difference is intentional,
+      Mark OK hides this for everyone on your Assignr site; it comes back if either side changes.</p></div>`;
+}
+
+function differsDialog() {
+  const rows = [...state.mismatches].map(([id, m]) => ({ ev: state.events.find((e) => e.id === id), m }))
+    .filter((r) => r.ev).sort((a, b) => a.ev.start.localeCompare(b.ev.start));
+  return `<div class="dialog-top"><h2>Differs from Assignr</h2>
+      <button class="btn icon ghost" data-action="close-dialog" aria-label="Close">×</button></div>
+    <p class="muted">League games whose Assignr copy has a different start time or field.</p>
+    <ul class="unmatched">${rows.map(({ ev, m }) => `<li data-action="open" data-id="${esc(ev.id)}" class="clickable">
+      <b>${fmtDayShort.format(parseDate(ev.date))} · ${fmtTime(startTime(ev))}</b> ${esc(ev.title)}
+      <span class="warn-text">${esc(differsText(ev, { ...m }))}</span>
+      ${state.doneByKey.has(m.key) ? '<span class="muted">✓ OK</span>' : ''}</li>`).join('')}</ul>`;
 }
 
 /** "✋2" on open positions when officials have asked to work the game. */
@@ -740,7 +832,7 @@ function isNow(ev) {
 function renderRow(ev) {
   const d = state.divisions.get(ev.divisionId);
   const time = ev.allDay ? '<b>All day</b>' : `<b>${fmtTime(startTime(ev))}</b><span>${fmtTime(endTime(ev))}</span>`;
-  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
+  return `<article class="ev type-${ev.type} ${isNow(ev) ? 'now' : ''} ${problemClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}" tabindex="0">
     <div class="ev-time">${time}</div>
     <div class="ev-body">
       <div class="ev-title">
@@ -756,7 +848,7 @@ function renderRow(ev) {
       </div>
       ${ev.notes ? `<div class="ev-notes">${esc(ev.notes)}</div>` : ''}
       ${umpLine(ev)}
-      ${assignrOnlyNote(ev)}
+      ${problemNote(ev)}
     </div>
     ${ev.mapUrl ? `<a class="map" href="${esc(ev.mapUrl)}" target="_blank" rel="noopener" title="Map: ${esc(ev.location)}" aria-label="Map">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a5.5 5.5 0 0 0-5.5 5.5c0 4.1 5.5 10.5 5.5 10.5s5.5-6.4 5.5-10.5A5.5 5.5 0 0 0 10 2Zm0 7.75a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Z"/></svg></a>` : ''}
@@ -938,7 +1030,7 @@ function renderDay(events) {
       </h3>
       <div class="dcol-events">${col.events.map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
+        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${problemClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
           <span class="wtop">
             <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
             ${byLocation && d ? `<span class="age" title="${esc(d.label)} (${esc(d.sport)})">${esc(ageGroup(d))}</span>` : ''}
@@ -946,7 +1038,7 @@ function renderDay(events) {
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${byLocation ? esc(ev.field) : `${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}`}</span>
           ${umpLine(ev, true)}
-          ${ev.assignrOnly && !state.doneByKey.has(ev.doneKey) ? '<span class="not-league">Not on league calendar</span>' : ''}
+          ${problemTag(ev)}
         </button>`;
       }).join('')}</div>
     </section>`).join('')}</div>`;
@@ -965,7 +1057,7 @@ function renderWeek(events) {
         ${evs.length ? `<span class="n">${evs.length}</span>` : ''}${assignrDayLink(date)}</h3>
       <div class="wday-events">${evs.map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
+        return `<button class="wev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${problemClass(ev)}" style="--h:${d?.hue ?? 0}" data-action="open" data-id="${ev.id}">
           <span class="wtop">
             <span class="t">${ev.allDay ? 'All day' : `${fmtTime(startTime(ev), true)}–${fmtTime(endTime(ev), true)}`}${ev.status ? ' <b class="warn">!</b>' : ''}</span>
             ${d ? `<span class="age" title="${esc(d.label)} (${esc(d.sport)})">${esc(ageGroup(d))}</span>` : ''}
@@ -973,7 +1065,7 @@ function renderWeek(events) {
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}</span>
           ${umpLine(ev, true)}
-          ${ev.assignrOnly && !state.doneByKey.has(ev.doneKey) ? '<span class="not-league">Not on league calendar</span>' : ''}
+          ${problemTag(ev)}
         </button>`;
       }).join('') || '<p class="none">—</p>'}</div>
     </section>`;
@@ -1001,7 +1093,7 @@ function renderMonth(events) {
       <div class="mnum"><span>${parseDate(date).getDate()}</span>${evs.length ? `<span class="n" title="${games} games, ${evs.length - games} other">${evs.length}</span>` : ''}</div>
       ${evs.slice(0, MAX).map((ev) => {
         const d = state.divisions.get(ev.divisionId);
-        return `<div class="mev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${assignrOnlyClass(ev)}" style="--h:${d?.hue ?? 0}">
+        return `<div class="mev type-${ev.type} ${recentChange(ev) ? 'changed' : ''} ${problemClass(ev)}" style="--h:${d?.hue ?? 0}">
           <span class="t">${ev.allDay ? '' : fmtTime(startTime(ev), true)}</span> ${esc(compactTitle(ev))}</div>`;
       }).join('')}
       ${evs.length > MAX ? `<div class="more">+${evs.length - MAX} more</div>` : ''}
@@ -1107,10 +1199,7 @@ function eventDetail(ev) {
       ${ev.status ? `<span class="badge warn">${esc(ev.status)}</span>` : ''}
     </div>
     <h2>${esc(ev.title)}</h2>
-    ${ev.assignrOnly ? `<div class="assignr-only-box">${assignrOnlyNote(ev)}
-      <p class="muted">This published Assignr game has no matching game on the league schedule. If the league cancelled
-        or moved it, update Assignr. If it's meant to be Assignr-only (an interleague game, say), Mark OK hides the
-        warning for everyone on your Assignr site.</p></div>` : ''}
+    ${problemBox(ev)}
     <dl>
       <dt>When</dt><dd>${fmtDayLong.format(parseDate(ev.date))}<br>${when}</dd>
       <dt>Where</dt><dd>${esc(ev.location)}${ev.field ? `<br><span class="muted">${esc(ev.field)}</span>` : ''}
@@ -1315,6 +1404,7 @@ document.addEventListener('click', (e) => {
       break;
     case 'jump-day': state.anchor = el.dataset.date; render(); break;
     case 'assignr-unmatched': openDialog(unmatchedDialog()); break;
+    case 'assignr-differs': openDialog(differsDialog()); break;
     case 'mark-done': {
       const { key } = el.dataset;
       const done = el.dataset.done === '1';

@@ -73,11 +73,21 @@ the matching Assignr game:
 
 Practices and note-only changes are ignored, because they don't affect umpires.
 
+**Games that differ from Assignr:** every league game paired with an Assignr game (exactly, by Game ID,
+or by the fallback) is checked for start time and field. If they disagree, the game is flagged everywhere
+it appears:
+- the List says "⚠ Doesn't match Assignr: Assignr has 11:30 AM";
+- Day and Week cards end with a red "ASSIGNR HAS 11:30A" or "ASSIGNR HAS A DIFFERENT FIELD";
+- the game's details show League vs Assignr side by side.
+
+**Mark OK** dismisses an intentional difference until either side changes again. Team names aren't compared,
+because playoff placeholders legitimately differ.
+
 **Games only in Assignr:** published, upcoming Assignr games with no matching league game appear in the List,
 Day, Week and Month views at their date and time. They have a dashed warning card that says "In Assignr, but not
 on the league schedule", usually because the league cancelled or moved them. **Mark OK** (shared, like Mark done)
-removes the warning from known Assignr-only games, such as interleague games. The **Show games that are only in
-Assignr** setting in the sidebar's Assignr panel turns the feature off. Unpublished drafts are ignored.
+removes the warning from known Assignr-only games, such as interleague games. The **Flag Assignr problems on the
+schedule** setting in the sidebar's Assignr panel turns off both kinds of flags. Unpublished drafts are ignored.
 
 **Setup:** register an OAuth app with Assignr (app.assignr.com/developers; you may need to ask
 Assignr Support for API access). Use the redirect URI `https://<your-site>/assignr/callback`. Then set
