@@ -946,6 +946,7 @@ function renderDay(events) {
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${byLocation ? esc(ev.field) : `${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}`}</span>
           ${umpLine(ev, true)}
+          ${ev.assignrOnly && !state.doneByKey.has(ev.doneKey) ? '<span class="not-league">Not on league calendar</span>' : ''}
         </button>`;
       }).join('')}</div>
     </section>`).join('')}</div>`;
@@ -972,6 +973,7 @@ function renderWeek(events) {
           <span class="title">${esc(compactTitle(ev))}</span>
           <span class="loc">${esc(ev.location)}${ev.field ? ` · ${esc(ev.field)}` : ''}</span>
           ${umpLine(ev, true)}
+          ${ev.assignrOnly && !state.doneByKey.has(ev.doneKey) ? '<span class="not-league">Not on league calendar</span>' : ''}
         </button>`;
       }).join('') || '<p class="none">—</p>'}</div>
     </section>`;

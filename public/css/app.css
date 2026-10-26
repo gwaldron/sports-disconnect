@@ -396,6 +396,8 @@ details > summary::-webkit-details-marker { display: none; }
 .assignr-only-box p { margin: 6px 0 0; font-size: 13px; }
 .wev.assignr-only:not(.ok), .mev.assignr-only:not(.ok) { outline: 1.5px dashed var(--chg-upd); outline-offset: -1.5px; }
 .wev.assignr-only:not(.ok) .title::before, .mev.assignr-only:not(.ok)::before { content: "⚠ "; color: var(--chg-upd); }
+.wev .not-league { margin-top: 3px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--chg-del); }
 .assignr .setting { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; font-size: 13px; color: var(--text-2); cursor: pointer; }
 
 /* Assignr: umpires (only for signed-in Assignr users) */
