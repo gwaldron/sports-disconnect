@@ -179,6 +179,11 @@ function applyData(data) {
 
 // ---------- Assignr ----------
 
+// Every Assignr link opens in one shared tab instead of a new tab per click.
+// No rel="noopener": that would put Assignr in a separate browsing context
+// group, and the browser could no longer find the named tab to reuse it.
+const ASSIGNR_TAB = 'target="assignr"';
+
 async function loadAssignr() {
   try {
     const res = await fetch('/api/assignr', { credentials: 'same-origin', cache: 'no-store' });
@@ -235,7 +240,7 @@ function renderAssignr() {
     <label class="setting"><input type="checkbox" id="show-assignr-only" ${state.showAssignrOnly ? 'checked' : ''}>
       Flag Assignr problems on the schedule</label>
     <div class="row">
-      <a class="btn small" href="${esc(a.assignrUrl)}" target="_blank" rel="noopener">Open Assignr ↗</a>
+      <a class="btn small" href="${esc(a.assignrUrl)}" ${ASSIGNR_TAB}>Open Assignr ↗</a>
       <button class="btn small ghost" data-action="assignr-disconnect">Disconnect</button>
     </div>`;
 }
@@ -316,7 +321,7 @@ function problemNote(ev) {
     : p.kind === 'only' ? 'A known Assignr-only game (an interleague game, say): hide the warning for everyone on your Assignr site'
     : 'An intentional difference: hide the warning for everyone on your Assignr site (it comes back if either side changes)';
   return `<div class="problem-msg"><span>${esc(msg)}</span>
-    <a href="${esc(p.g.url)}" target="_blank" rel="noopener">Open in Assignr ↗</a>
+    <a href="${esc(p.g.url)}" ${ASSIGNR_TAB}>Open in Assignr ↗</a>
     <button class="done-toggle ${ok ? 'on' : ''}" data-action="mark-done" data-key="${esc(p.key)}" data-done="${ok ? 0 : 1}"
       aria-pressed="${!!ok}" title="${esc(tip)}">${ok ? '✓ OK' : 'Mark OK'}</button></div>`;
 }
@@ -391,7 +396,7 @@ function assignrDayLink(date) {
   if (!a?.connected || !a.dayUrl) return '';
   const href = assignrDayUrl(a.dayUrl, date);
   const label = `Open ${fmtDayShort.format(parseDate(date))} in Assignr`;
-  return `<a class="assignr-day" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(label)}" aria-label="${esc(label)}">
+  return `<a class="assignr-day" href="${esc(href)}" ${ASSIGNR_TAB} title="${esc(label)}" aria-label="${esc(label)}">
     <img src="/img/assignr.png" alt="" width="16" height="16"></a>`;
 }
 
@@ -404,7 +409,7 @@ function umpiresHtml(ev) {
       ${o.name ? `<span class="st ${o.declined ? 'declined' : o.accepted ? 'ok' : 'pending'}">${o.declined ? 'Declined' : o.accepted ? 'Accepted' : 'Pending'}</span>` : ''}</li>`).join('');
   return `<section class="umpires"><h3>Umpires</h3>
     ${rows ? `<ul>${rows}</ul>` : '<p class="muted">No positions in Assignr yet.</p>'}
-    <a href="${esc(g.url)}" target="_blank" rel="noopener">Open this game in Assignr ↗</a></section>`;
+    <a href="${esc(g.url)}" ${ASSIGNR_TAB}>Open this game in Assignr ↗</a></section>`;
 }
 
 function unmatchedDialog() {
@@ -417,7 +422,7 @@ function unmatchedDialog() {
       ${esc(ev.title)}
       <span class="muted">${esc([ev.location, ev.field].filter(Boolean).join(' · '))}</span>
       ${state.doneByKey.has(ev.doneKey) ? '<span class="muted">✓ OK</span>' : ''}
-      <a href="${esc(ev.assignr.url)}" target="_blank" rel="noopener">Assignr ↗</a></li>`).join('')}</ul>`;
+      <a href="${esc(ev.assignr.url)}" ${ASSIGNR_TAB}>Assignr ↗</a></li>`).join('')}</ul>`;
 }
 
 /** The [from, to] window the current view displays. */
@@ -955,7 +960,7 @@ function syncHtml({ sync: s, done, key }) {
     : s.state === 'missing' ? ['todo', 'Not in Assignr yet']
     : s.state === 'stale' ? ['todo', s.reason === 'active' ? 'Still active in Assignr' : `Needs update: Assignr still shows ${assignrShows(s)}`]
     : ['unsure', s.game ? "Can't tell if Assignr matches" : "Couldn't find this game in Assignr"];
-  const link = s.game?.url ? `<a href="${esc(s.game.url)}" target="_blank" rel="noopener">Open in Assignr ↗</a>` : '';
+  const link = s.game?.url ? `<a href="${esc(s.game.url)}" ${ASSIGNR_TAB}>Open in Assignr ↗</a>` : '';
   const toggle = s.state === 'synced' ? '' : `<button class="done-toggle ${done ? 'on' : ''}" data-action="mark-done"
       data-key="${esc(key)}" data-done="${done ? 0 : 1}" aria-pressed="${!!done}"
       title="${done ? `Marked done${done.by ? ` by ${esc(done.by)}` : ''} ${esc(fmtMoment(done.at))}. Click to undo.` : 'Mark this change as handled, for everyone on your Assignr site'}">
