@@ -83,6 +83,10 @@ it appears:
 **Mark OK** dismisses an intentional difference until either side changes again. Team names aren't compared,
 because playoff placeholders legitimately differ.
 
+**Cancellations:** a game counts as cancelled in Assignr when its `cancelled` flag is set or its status is "C" or
+contains "cancel". If a game is cancelled in Assignr and gone from the league schedule, the two agree, so nothing
+is shown. If it's cancelled in Assignr but **still on the league schedule**, it's flagged "CANCELED IN ASSIGNR".
+
 **Games only in Assignr:** published, upcoming Assignr games with no matching league game appear in the List,
 Day, Week and Month views at their date and time. They have a dashed warning card that says "In Assignr, but not
 on the league schedule", usually because the league cancelled or moved them. **Mark OK** (shared, like Mark done)

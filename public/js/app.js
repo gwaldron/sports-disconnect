@@ -46,6 +46,7 @@ const state = {
   todoOnly: load(LS.todoOnly, false),
   assignrOnly: [], // published Assignr games with no league game, shaped like events
   mismatches: new Map(), // event id -> { fields, g, key }: paired games with a different time or field
+  cancelledInAssignr: new Map(), // event id -> Assignr game: on the league schedule, cancelled in Assignr
   showAssignrOnly: load(LS.showAssignrOnly, true),
   highlightDays: load(LS.highlightDays, 3),
   seenMark: '', // changes newer than this were unseen when the Changes view opened
@@ -214,6 +215,11 @@ function matchUmpires() {
     const sig = shortHash([ev.start, ev.location, ev.field, g.start, g.venue, g.subvenue].join('|'));
     if (fields.length) state.mismatches.set(ev.id, { fields, g, key: `mismatch.${g.id}.${sig}` });
   }
+  // Upcoming league games whose only Assignr copy is cancelled. (A cancelled copy alongside a
+  // live one is fine: that's a game cancelled and re-created in Assignr.)
+  const cancelled = games.filter((g) => g.cancelled && g.published !== false).map((g) => ({ ...g, cancelled: false }));
+  const unpaired = state.events.filter((ev) => ev.date >= t && !byEvent.has(ev.id));
+  state.cancelledInAssignr = matchAssignr(unpaired, cancelled).byEvent;
   state.doneByKey = new Map((state.assignr?.done || []).map((d) => [d.key, d]));
 }
 
@@ -232,11 +238,13 @@ function renderAssignr() {
   const withUmps = [...state.umps].filter(([id, g]) => !id.startsWith('assignr-') && g.officials.length).length;
   const onlyIn = state.assignrOnly.length;
   const differs = state.mismatches.size;
+  const canceled = state.cancelledInAssignr.size;
   $('#assignr-body').innerHTML = `${note}
     <p class="connected">Connected as <b>${esc(a.account)}</b></p>
     <p class="hint">${withUmps} game${withUmps === 1 ? '' : 's'} with umpires${onlyIn
       ? ` · <button class="linkish" data-action="assignr-unmatched">${onlyIn} only in Assignr</button>` : ''}${differs
-      ? ` · <button class="linkish" data-action="assignr-differs">${differs} differ${differs === 1 ? 's' : ''} from Assignr</button>` : ''}</p>
+      ? ` · <button class="linkish" data-action="assignr-differs">${differs} differ${differs === 1 ? 's' : ''} from Assignr</button>` : ''}${canceled
+      ? ` · <button class="linkish" data-action="assignr-canceled">${canceled} canceled in Assignr</button>` : ''}</p>
     <label class="setting"><input type="checkbox" id="show-assignr-only" ${state.showAssignrOnly ? 'checked' : ''}>
       Flag Assignr problems on the schedule</label>
     <div class="row">
@@ -285,6 +293,8 @@ function shortHash(s) {
 function problemOf(ev) {
   if (!state.assignr?.connected || !state.showAssignrOnly) return null;
   if (ev.assignrOnly) return { kind: 'only', key: ev.doneKey, g: ev.assignr };
+  const c = state.cancelledInAssignr.get(ev.id);
+  if (c) return { kind: 'cancelled', key: `cancelled.${c.id}`, g: c };
   const m = state.mismatches.get(ev.id);
   return m ? { kind: 'differs', key: m.key, g: m.g, fields: m.fields } : null;
 }
@@ -314,11 +324,14 @@ function problemNote(ev) {
   if (!p) return '';
   const ok = state.doneByKey.get(p.key);
   const by = ok?.by ? ` by ${ok.by.split(' ')[0]}` : '';
-  const msg = ok ? `${p.kind === 'only' ? 'Only in Assignr' : 'Differs from Assignr'} · OK'd${by}`
+  const label = { only: 'Only in Assignr', cancelled: 'Canceled in Assignr', differs: 'Differs from Assignr' }[p.kind];
+  const msg = ok ? `${label} · OK'd${by}`
     : p.kind === 'only' ? '⚠ In Assignr, but not on the league schedule'
+    : p.kind === 'cancelled' ? '⚠ Canceled in Assignr, but still on the league schedule'
     : `⚠ Doesn't match Assignr: ${differsText(ev, p)}`;
   const tip = ok ? 'Click to show the warning again'
     : p.kind === 'only' ? 'A known Assignr-only game (an interleague game, say): hide the warning for everyone on your Assignr site'
+    : p.kind === 'cancelled' ? 'Hide this warning for everyone on your Assignr site'
     : 'An intentional difference: hide the warning for everyone on your Assignr site (it comes back if either side changes)';
   return `<div class="problem-msg"><span>${esc(msg)}</span>
     <a href="${esc(p.g.url)}" ${ASSIGNR_TAB}>Open in Assignr ↗</a>
@@ -330,7 +343,8 @@ function problemNote(ev) {
 function problemTag(ev) {
   const p = problemOf(ev);
   if (!p || state.doneByKey.has(p.key)) return '';
-  return `<span class="problem-tag">${esc(p.kind === 'only' ? 'Not on league calendar' : differsText(ev, p, true))}</span>`;
+  const text = p.kind === 'only' ? 'Not on league calendar' : p.kind === 'cancelled' ? 'Canceled in Assignr' : differsText(ev, p, true);
+  return `<span class="problem-tag">${esc(text)}</span>`;
 }
 
 /** The explanation at the top of a game's details. */
@@ -343,6 +357,11 @@ function problemBox(ev) {
         or moved it, update Assignr. If it's meant to be Assignr-only (an interleague game, say), Mark OK hides the
         warning for everyone on your Assignr site.</p></div>`;
   }
+  if (p.kind === 'cancelled') {
+    return `<div class="problem-box">${problemNote(ev)}
+      <p class="muted">This game is still on the league schedule, but it's canceled in Assignr, so no umpires are
+        assigned. If the league game is really off, nothing needs to change in Assignr; otherwise, restore it there.</p></div>`;
+  }
   const g = p.g;
   const row = (label, league, assignr, diff) =>
     `<tr class="${diff ? 'diff' : ''}"><th>${label}</th><td>${esc(league)}</td><td>${esc(assignr)}</td></tr>`;
@@ -354,6 +373,18 @@ function problemBox(ev) {
     </table>
     <p class="muted">Start times and fields should match. Fix whichever side is wrong. If the difference is intentional,
       Mark OK hides this for everyone on your Assignr site; it comes back if either side changes.</p></div>`;
+}
+
+function canceledDialog() {
+  const rows = [...state.cancelledInAssignr].map(([id, g]) => ({ ev: state.events.find((e) => e.id === id), g }))
+    .filter((r) => r.ev).sort((a, b) => a.ev.start.localeCompare(b.ev.start));
+  return `<div class="dialog-top"><h2>Canceled in Assignr</h2>
+      <button class="btn icon ghost" data-action="close-dialog" aria-label="Close">×</button></div>
+    <p class="muted">League games that are still on the schedule but canceled in Assignr.</p>
+    <ul class="unmatched">${rows.map(({ ev, g }) => `<li data-action="open" data-id="${esc(ev.id)}" class="clickable">
+      <b>${fmtDayShort.format(parseDate(ev.date))} · ${fmtTime(startTime(ev))}</b> ${esc(ev.title)}
+      <span class="muted">${esc([ev.location, ev.field].filter(Boolean).join(' · '))}</span>
+      ${state.doneByKey.has(`cancelled.${g.id}`) ? '<span class="muted">✓ OK</span>' : ''}</li>`).join('')}</ul>`;
 }
 
 function differsDialog() {
@@ -1410,6 +1441,7 @@ document.addEventListener('click', (e) => {
     case 'jump-day': state.anchor = el.dataset.date; render(); break;
     case 'assignr-unmatched': openDialog(unmatchedDialog()); break;
     case 'assignr-differs': openDialog(differsDialog()); break;
+    case 'assignr-canceled': openDialog(canceledDialog()); break;
     case 'mark-done': {
       const { key } = el.dataset;
       const done = el.dataset.done === '1';
