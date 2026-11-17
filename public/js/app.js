@@ -1472,6 +1472,7 @@ document.addEventListener('click', (e) => {
     case 'next': shiftAnchor(1); break;
     case 'today': state.anchor = today(); render(); break;
     case 'toggle-sidebar':
+      if (matchMedia('(max-width: 860px)').matches) break; // phones use the Filters button
       setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
       syncBarHeights(); // the toolbar is wider now, so it may wrap differently
       break;

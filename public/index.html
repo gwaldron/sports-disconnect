@@ -12,12 +12,12 @@
 </head>
 <body>
   <header class="topbar">
-    <button class="btn icon ghost sidebar-toggle" data-action="toggle-sidebar" aria-controls="sidebar" aria-expanded="true" title="Hide filters">
-      <svg class="icon-stroke" viewBox="0 0 20 20" aria-hidden="true"><rect x="2.75" y="3.75" width="14.5" height="12.5" rx="1.5"/><path d="M8 4v12"/></svg>
-      <span class="pill-count" id="sidebar-filter-count"></span>
-    </button>
     <div class="brand">
-      <img src="/img/logo.png" alt="" width="28" height="30">
+      <!-- On desktop the logo shows and hides the sidebar; on phones it's just the logo. -->
+      <button class="sidebar-toggle" data-action="toggle-sidebar" aria-controls="sidebar" aria-expanded="true" title="Hide filters">
+        <img src="/img/logo.png" alt="FXLL Connect" width="28" height="30">
+        <span class="pill-count" id="sidebar-filter-count"></span>
+      </button>
       <div>
         <h1>FXLL Connect</h1>
         <p class="league" id="league-name"></p>
