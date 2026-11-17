@@ -166,6 +166,6 @@ http.createServer((req, res) => {
       { 'Content-Type': 'application/json' });
   });
 }).listen(cfg.port, cfg.host, () => {
-  console.log(`Sports Disconnect running at http://${cfg.host === '0.0.0.0' ? 'localhost' : cfg.host}:${cfg.port}`);
+  console.log(`FXLL Connect running at http://${cfg.host === '0.0.0.0' ? 'localhost' : cfg.host}:${cfg.port}`);
   console.log(`Source: ${cfg.site}${cfg.portalId ? ` (portal ${cfg.portalId})` : ''}`);
 });

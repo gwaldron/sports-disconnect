@@ -1589,7 +1589,7 @@ loadData()
   .then(() => {
     const d = state.data;
     $('#league-name').textContent = d.leagueName || new URL(d.site).hostname;
-    document.title = `${d.leagueName || 'League'} schedule · Sports Disconnect`;
+    document.title = `${d.leagueName || 'League'} schedule · FXLL Connect`;
     $('#source-link').href = d.calendarUrl || d.site;
     // Drop starred/filtered team ids that no longer exist.
     for (const id of state.starred) if (!state.teams.has(id)) state.starred.delete(id);

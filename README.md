@@ -1,4 +1,6 @@
-# Sports Disconnect
+# FXLL Connect
+
+*A NearlyWorks Production.* (The repo, Worker and database are still named `sports-disconnect`.)
 
 A calendar for a SportsConnect league site that you can actually use. It pulls the
 league's public schedule and shows it as a fast, filterable list, week or month view.

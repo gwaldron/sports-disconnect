@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sports Disconnect</title>
+  <title>FXLL Connect</title>
   <meta name="description" content="A usable, filterable view of the league calendar.">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" href="/img/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -15,9 +17,9 @@
       <span class="pill-count" id="sidebar-filter-count"></span>
     </button>
     <div class="brand">
-      <img src="/favicon.svg" alt="" width="28" height="28">
+      <img src="/img/logo.png" alt="" width="28" height="30">
       <div>
-        <h1>Sports Disconnect</h1>
+        <h1>FXLL Connect</h1>
         <p class="league" id="league-name"></p>
       </div>
     </div>
@@ -99,6 +101,8 @@
         <span id="updated"></span>
         <button class="linkish" data-action="refresh">Refresh now</button>
         <a id="source-link" target="_blank" rel="noopener">Original calendar ↗</a>
+        <div class="app-name"><img src="/img/logo.png" alt="" width="37" height="40">
+          <div>FXLL Connect<small>A NearlyWorks Production</small></div></div>
       </footer>
     </aside>
     <div class="scrim" data-action="close-filters"></div>
