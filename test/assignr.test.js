@@ -151,6 +151,8 @@ function fakeAssignr() {
     if (u.pathname === '/oauth/token') {
       const p = new URLSearchParams(init.body);
       if (p.get('client_secret') !== 'shh') return new Response('{}', { status: 401 });
+      // Like Assignr from Dec 15, 2026: no scope, no token (code exchange and refresh alike).
+      if (p.get('scope') !== 'read') return new Response('{"error":"invalid_scope"}', { status: 400 });
       if (p.get('grant_type') === 'authorization_code' && p.get('code') !== 'good') return new Response('{}', { status: 400 });
       issued++;
       return ok({ access_token: `at${issued}`, refresh_token: `rt${issued}`, expires_in: p.get('grant_type') === 'refresh_token' ? 7200 : 30 });
